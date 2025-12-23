@@ -1,0 +1,573 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0024219B046812C3A888E2BE /* InputViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = EB03F79D3C94E7B8FC9EA4FD /* InputViewController.m */; };
+		07EB5C1B1CEE4547C925D61E /* FSHShiamyEngine.m in Sources */ = {isa = PBXBuildFile; fileRef = 9C4A0EE446BE0734E999F76A /* FSHShiamyEngine.m */; };
+		4BC24843D13F37AB61FE2557 /* FSHCinParser.m in Sources */ = {isa = PBXBuildFile; fileRef = AAE7D1FC9103040053204A84 /* FSHCinParser.m */; };
+		58017B101A9623C18E25688E /* FSHKeyboardView.m in Sources */ = {isa = PBXBuildFile; fileRef = 00FF867F6A03973B2A491F0E /* FSHKeyboardView.m */; };
+		5AB4F5C306D1CBF9496943D1 /* FSHCandidate.m in Sources */ = {isa = PBXBuildFile; fileRef = 138F4543E2894DCA54D83109 /* FSHCandidate.m */; };
+		6AF3A9CC8DFE424129F6974D /* freeshiamy.cin in Resources */ = {isa = PBXBuildFile; fileRef = DD34322BD5D30BCF041C9642 /* freeshiamy.cin */; };
+		735493A71C27B0F6F33D90CB /* cht_spells.cin in Resources */ = {isa = PBXBuildFile; fileRef = 44626E78E737841AC99DC274 /* cht_spells.cin */; };
+		7B7C9D308904D8B1D310CCB2 /* FSHSettings.m in Sources */ = {isa = PBXBuildFile; fileRef = CBC7EE0B779DE4A5A4E0F18A /* FSHSettings.m */; };
+		DEC7176F68622C0C316975F0 /* FSHKeyButton.m in Sources */ = {isa = PBXBuildFile; fileRef = D986A3DF956265EFFDF00060 /* FSHKeyButton.m */; };
+		ECC5DF4FEEC7E155E2B5CE05 /* FreeShiamyKeyboard.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = ECDD61228BB953BCC36A76D1 /* FreeShiamyKeyboard.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F820B8447C9B46D01573507E /* FSHSettings.m in Sources */ = {isa = PBXBuildFile; fileRef = CBC7EE0B779DE4A5A4E0F18A /* FSHSettings.m */; };
+		F9CFC6ECC909FC55D9D70DC9 /* FSHCandidateBarView.m in Sources */ = {isa = PBXBuildFile; fileRef = 67DE9D56534F941A9180A26E /* FSHCandidateBarView.m */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3A4BA91F37C970D9A080ACDA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1868F2772EFA53BF00377D4D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2EFFC18CE2BAF10D8A94B621;
+			remoteInfo = FreeShiamyKeyboard;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		DE9929A2784ED025868E0BDF /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				ECC5DF4FEEC7E155E2B5CE05 /* FreeShiamyKeyboard.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		00FF867F6A03973B2A491F0E /* FSHKeyboardView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FSHKeyboardView.m; sourceTree = "<group>"; };
+		027FF6A72915190FCE8E6889 /* Local.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig.example; sourceTree = "<group>"; };
+		10EA95C312659363AE7B3FA4 /* FSHKeyButton.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FSHKeyButton.h; sourceTree = "<group>"; };
+		138F4543E2894DCA54D83109 /* FSHCandidate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FSHCandidate.m; sourceTree = "<group>"; };
+		1868F27F2EFA53C000377D4D /* freeshiamy-ios.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "freeshiamy-ios.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2C72EDDE50E1CEC193B64123 /* FSHSettings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FSHSettings.h; sourceTree = "<group>"; };
+		32B9DA00B63E77FE0E19746C /* FSHShiamyEngine.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FSHShiamyEngine.h; sourceTree = "<group>"; };
+		39359A075AA6614189DC5D4B /* InputViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = InputViewController.h; sourceTree = "<group>"; };
+		44626E78E737841AC99DC274 /* cht_spells.cin */ = {isa = PBXFileReference; lastKnownFileType = text; path = cht_spells.cin; sourceTree = "<group>"; };
+		4970577C9C4892C56DC2D2C3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		5F6A5E195315B9B527CE165A /* FSHCandidate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FSHCandidate.h; sourceTree = "<group>"; };
+		67DE9D56534F941A9180A26E /* FSHCandidateBarView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FSHCandidateBarView.m; sourceTree = "<group>"; };
+		8951A923E01039BD244DB380 /* FSHKeyboardView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FSHKeyboardView.h; sourceTree = "<group>"; };
+		8A6EBBB331C0A5F4F624393A /* FreeShiamyKeyboard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FreeShiamyKeyboard.entitlements; sourceTree = "<group>"; };
+		9C4A0EE446BE0734E999F76A /* FSHShiamyEngine.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FSHShiamyEngine.m; sourceTree = "<group>"; };
+		AAE7D1FC9103040053204A84 /* FSHCinParser.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FSHCinParser.m; sourceTree = "<group>"; };
+		C1487E8B5425F3CA4099F944 /* FSHCandidateBarView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FSHCandidateBarView.h; sourceTree = "<group>"; };
+		CBC7EE0B779DE4A5A4E0F18A /* FSHSettings.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FSHSettings.m; sourceTree = "<group>"; };
+		D986A3DF956265EFFDF00060 /* FSHKeyButton.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FSHKeyButton.m; sourceTree = "<group>"; };
+		DD34322BD5D30BCF041C9642 /* freeshiamy.cin */ = {isa = PBXFileReference; lastKnownFileType = text; path = freeshiamy.cin; sourceTree = "<group>"; };
+		E453DABCB33F91E8D3E56F54 /* FSHCinParser.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FSHCinParser.h; sourceTree = "<group>"; };
+		EB03F79D3C94E7B8FC9EA4FD /* InputViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = InputViewController.m; sourceTree = "<group>"; };
+		ECDD61228BB953BCC36A76D1 /* FreeShiamyKeyboard.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FreeShiamyKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		FEC13FEE63AAB7C6299B8FAF /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		1868F2962EFA53C200377D4D /* Exceptions for "freeshiamy-ios" folder in "freeshiamy-ios" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 1868F27E2EFA53BF00377D4D /* freeshiamy-ios */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		1868F2812EFA53C000377D4D /* freeshiamy-ios */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				1868F2962EFA53C200377D4D /* Exceptions for "freeshiamy-ios" folder in "freeshiamy-ios" target */,
+			);
+			path = "freeshiamy-ios";
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1868F27C2EFA53BF00377D4D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FBB656293E147D6E782B0F40 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0DEB1E3B0BA1A8296519C1B0 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				DD34322BD5D30BCF041C9642 /* freeshiamy.cin */,
+				44626E78E737841AC99DC274 /* cht_spells.cin */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		1868F2762EFA53BF00377D4D = {
+			isa = PBXGroup;
+			children = (
+				1868F2812EFA53C000377D4D /* freeshiamy-ios */,
+				2186F19C3B4EBEACCA7A3F19 /* FreeShiamyKeyboard */,
+				EAC94622A978D9B95A62700B /* Config */,
+				9A524EB627EE95E73A850738 /* Shared */,
+				1868F2802EFA53C000377D4D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1868F2802EFA53C000377D4D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1868F27F2EFA53C000377D4D /* freeshiamy-ios.app */,
+				ECDD61228BB953BCC36A76D1 /* FreeShiamyKeyboard.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		2186F19C3B4EBEACCA7A3F19 /* FreeShiamyKeyboard */ = {
+			isa = PBXGroup;
+			children = (
+				C1487E8B5425F3CA4099F944 /* FSHCandidateBarView.h */,
+				67DE9D56534F941A9180A26E /* FSHCandidateBarView.m */,
+				8951A923E01039BD244DB380 /* FSHKeyboardView.h */,
+				00FF867F6A03973B2A491F0E /* FSHKeyboardView.m */,
+				10EA95C312659363AE7B3FA4 /* FSHKeyButton.h */,
+				D986A3DF956265EFFDF00060 /* FSHKeyButton.m */,
+				39359A075AA6614189DC5D4B /* InputViewController.h */,
+				EB03F79D3C94E7B8FC9EA4FD /* InputViewController.m */,
+				4970577C9C4892C56DC2D2C3 /* Info.plist */,
+				8A6EBBB331C0A5F4F624393A /* FreeShiamyKeyboard.entitlements */,
+				0DEB1E3B0BA1A8296519C1B0 /* Resources */,
+			);
+			path = FreeShiamyKeyboard;
+			sourceTree = "<group>";
+		};
+		9A524EB627EE95E73A850738 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				5F6A5E195315B9B527CE165A /* FSHCandidate.h */,
+				138F4543E2894DCA54D83109 /* FSHCandidate.m */,
+				E453DABCB33F91E8D3E56F54 /* FSHCinParser.h */,
+				AAE7D1FC9103040053204A84 /* FSHCinParser.m */,
+				32B9DA00B63E77FE0E19746C /* FSHShiamyEngine.h */,
+				9C4A0EE446BE0734E999F76A /* FSHShiamyEngine.m */,
+				2C72EDDE50E1CEC193B64123 /* FSHSettings.h */,
+				CBC7EE0B779DE4A5A4E0F18A /* FSHSettings.m */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		EAC94622A978D9B95A62700B /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				FEC13FEE63AAB7C6299B8FAF /* Signing.xcconfig */,
+				027FF6A72915190FCE8E6889 /* Local.xcconfig.example */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1868F27E2EFA53BF00377D4D /* freeshiamy-ios */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1868F2972EFA53C200377D4D /* Build configuration list for PBXNativeTarget "freeshiamy-ios" */;
+			buildPhases = (
+				1868F27B2EFA53BF00377D4D /* Sources */,
+				1868F27C2EFA53BF00377D4D /* Frameworks */,
+				1868F27D2EFA53BF00377D4D /* Resources */,
+				DE9929A2784ED025868E0BDF /* Embed App Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9E4144F8E28F14D83CB6E4DF /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				1868F2812EFA53C000377D4D /* freeshiamy-ios */,
+			);
+			name = "freeshiamy-ios";
+			packageProductDependencies = (
+			);
+			productName = "freeshiamy-ios";
+			productReference = 1868F27F2EFA53C000377D4D /* freeshiamy-ios.app */;
+			productType = "com.apple.product-type.application";
+		};
+		2EFFC18CE2BAF10D8A94B621 /* FreeShiamyKeyboard */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4838D64F265077DF54696559 /* Build configuration list for PBXNativeTarget "FreeShiamyKeyboard" */;
+			buildPhases = (
+				28797E82A8CB16AD9BB00CD5 /* Sources */,
+				FBB656293E147D6E782B0F40 /* Frameworks */,
+				5F67FA8FD4186CA246B13424 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FreeShiamyKeyboard;
+			packageProductDependencies = (
+			);
+			productName = FreeShiamyKeyboard;
+			productReference = ECDD61228BB953BCC36A76D1 /* FreeShiamyKeyboard.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		1868F2772EFA53BF00377D4D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2620;
+				TargetAttributes = {
+					1868F27E2EFA53BF00377D4D = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					2EFFC18CE2BAF10D8A94B621 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+				};
+			};
+			buildConfigurationList = 1868F27A2EFA53BF00377D4D /* Build configuration list for PBXProject "freeshiamy-ios" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 1868F2762EFA53BF00377D4D;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1868F2802EFA53C000377D4D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1868F27E2EFA53BF00377D4D /* freeshiamy-ios */,
+				2EFFC18CE2BAF10D8A94B621 /* FreeShiamyKeyboard */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		1868F27D2EFA53BF00377D4D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5F67FA8FD4186CA246B13424 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6AF3A9CC8DFE424129F6974D /* freeshiamy.cin in Resources */,
+				735493A71C27B0F6F33D90CB /* cht_spells.cin in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1868F27B2EFA53BF00377D4D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7B7C9D308904D8B1D310CCB2 /* FSHSettings.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		28797E82A8CB16AD9BB00CD5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0024219B046812C3A888E2BE /* InputViewController.m in Sources */,
+				F9CFC6ECC909FC55D9D70DC9 /* FSHCandidateBarView.m in Sources */,
+				58017B101A9623C18E25688E /* FSHKeyboardView.m in Sources */,
+				DEC7176F68622C0C316975F0 /* FSHKeyButton.m in Sources */,
+				5AB4F5C306D1CBF9496943D1 /* FSHCandidate.m in Sources */,
+				4BC24843D13F37AB61FE2557 /* FSHCinParser.m in Sources */,
+				F820B8447C9B46D01573507E /* FSHSettings.m in Sources */,
+				07EB5C1B1CEE4547C925D61E /* FSHShiamyEngine.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		9E4144F8E28F14D83CB6E4DF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2EFFC18CE2BAF10D8A94B621 /* FreeShiamyKeyboard */;
+			targetProxy = 3A4BA91F37C970D9A080ACDA /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1868F2982EFA53C200377D4D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = FEC13FEE63AAB7C6299B8FAF /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "freeshiamy-ios/freeshiamy-ios.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "freeshiamy-ios/Info.plist";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = osku.me.freeshiamyios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		1868F2992EFA53C200377D4D /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = FEC13FEE63AAB7C6299B8FAF /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "freeshiamy-ios/freeshiamy-ios.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "freeshiamy-ios/Info.plist";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = osku.me.freeshiamyios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		1868F29A2EFA53C200377D4D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		1868F29B2EFA53C200377D4D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		2A9954597DFDDB81BAA38768 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = FEC13FEE63AAB7C6299B8FAF /* Signing.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = FreeShiamyKeyboard/FreeShiamyKeyboard.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FreeShiamyKeyboard/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = osku.me.freeshiamyios.keyboard;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		6EFFAF73B386691AA77041E5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = FEC13FEE63AAB7C6299B8FAF /* Signing.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = FreeShiamyKeyboard/FreeShiamyKeyboard.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FreeShiamyKeyboard/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = osku.me.freeshiamyios.keyboard;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1868F27A2EFA53BF00377D4D /* Build configuration list for PBXProject "freeshiamy-ios" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1868F29A2EFA53C200377D4D /* Debug */,
+				1868F29B2EFA53C200377D4D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1868F2972EFA53C200377D4D /* Build configuration list for PBXNativeTarget "freeshiamy-ios" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1868F2982EFA53C200377D4D /* Debug */,
+				1868F2992EFA53C200377D4D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4838D64F265077DF54696559 /* Build configuration list for PBXNativeTarget "FreeShiamyKeyboard" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2A9954597DFDDB81BAA38768 /* Debug */,
+				6EFFAF73B386691AA77041E5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 1868F2772EFA53BF00377D4D /* Project object */;
+}
