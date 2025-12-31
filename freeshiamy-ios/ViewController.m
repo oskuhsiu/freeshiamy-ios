@@ -59,12 +59,14 @@
 
     UIButton *openSettingsButton = [self actionButtonWithTitle:@"開啟 App 設定" selector:@selector(openSettings)];
     UIButton *openKeyboardSettingsButton = [self actionButtonWithTitle:@"開啟系統設定（鍵盤）" selector:@selector(openSystemSettings)];
+    UIButton *showPickerButton = [self actionButtonWithTitle:@"顯示鍵盤選擇器" selector:@selector(showKeyboardPickerHint)];
     UIButton *focusSingleButton = [self actionButtonWithTitle:@"聚焦單行並顯示鍵盤" selector:@selector(focusSingleLine)];
     UIButton *clearButton = [self actionButtonWithTitle:@"清空兩個輸入框" selector:@selector(clearFields)];
     UIButton *refreshButton = [self actionButtonWithTitle:@"刷新狀態" selector:@selector(refreshStatus)];
 
     [stack addArrangedSubview:openSettingsButton];
     [stack addArrangedSubview:openKeyboardSettingsButton];
+    [stack addArrangedSubview:showPickerButton];
     [stack addArrangedSubview:focusSingleButton];
     [stack addArrangedSubview:clearButton];
     [stack addArrangedSubview:refreshButton];
@@ -119,6 +121,14 @@
     if (url) {
         [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
     }
+}
+
+- (void)showKeyboardPickerHint {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"鍵盤選擇器"
+                                                                   message:@"iOS 需要在鍵盤上長按 🌐 才能切換輸入法。"
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)focusSingleLine {

@@ -14,8 +14,9 @@ typedef NS_ENUM(NSInteger, FSHKeyboardMode) {
 typedef NS_ENUM(NSInteger, FSHKeyboardLayout) {
     FSHKeyboardLayoutStandard,
     FSHKeyboardLayoutStandardSpacious,
-    FSHKeyboardLayoutStandardLabelTop,
     FSHKeyboardLayoutOriginal,
+    FSHKeyboardLayoutOriginalNoNumber,
+    FSHKeyboardLayoutStandardLabelTop,
 };
 
 static const NSInteger FSHKeyCodeDelete = -5;
@@ -41,6 +42,8 @@ static const NSInteger FSHKeyCodeEnter = 10;
 @property (nonatomic, assign) FSHKeyboardLayout layout;
 @property (nonatomic, assign) BOOL showNumberRow;
 @property (nonatomic, assign) BOOL showsGlobe;
+@property (nonatomic, assign) BOOL labelTop;
+@property (nonatomic, assign) BOOL leftShift;
 @property (nonatomic, assign) BOOL shiftOn;
 @property (nonatomic, assign) BOOL capsLockOn;
 

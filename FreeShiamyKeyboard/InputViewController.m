@@ -35,6 +35,7 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 @property (nonatomic, assign) NSUInteger moreLimit;
 @property (nonatomic, assign) BOOL showShortestHint;
 @property (nonatomic, assign) BOOL disableIMEInSensitive;
+@property (nonatomic, assign) BOOL sensitiveIncludeNoPersonalized;
 @property (nonatomic, assign) BOOL isInSensitiveField;
 @property (nonatomic, assign) BOOL hasHostConnection;
 @property (nonatomic, strong) NSLayoutConstraint *candidateBarHeightConstraint;
@@ -99,6 +100,8 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 
 - (void)textWillChange:(id<UITextInput>)textInput {
     [super textWillChange:textInput];
+    self.hasHostConnection = YES;
+    [self handleSensitiveFieldIfNeeded];
 }
 
 - (void)textDidChange:(id<UITextInput>)textInput {
@@ -116,6 +119,7 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 - (void)selectionDidChange:(id<UITextInput>)textInput {
     [super selectionDidChange:textInput];
     [self clearComposingState];
+    [self handleSensitiveFieldIfNeeded];
 }
 
 #pragma mark - Engine
@@ -294,7 +298,32 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
         [self commitRawBuffer];
         return;
     }
-    [self.textDocumentProxy insertText:@"\n"];
+    id<UITextInputTraits> traits = (id)self.textDocumentProxy;
+    UIReturnKeyType returnKeyType = UIReturnKeyDefault;
+    if ([traits respondsToSelector:@selector(returnKeyType)]) {
+        returnKeyType = traits.returnKeyType;
+    }
+    switch (returnKeyType) {
+        case UIReturnKeyNext:
+            [self.textDocumentProxy insertText:@"\t"];
+            break;
+        case UIReturnKeyGo:
+        case UIReturnKeySearch:
+        case UIReturnKeySend:
+        case UIReturnKeyDone:
+        case UIReturnKeyJoin:
+        case UIReturnKeyRoute:
+        case UIReturnKeyGoogle:
+        case UIReturnKeyYahoo:
+        case UIReturnKeyEmergencyCall:
+        case UIReturnKeyContinue:
+            [self dismissKeyboard];
+            break;
+        case UIReturnKeyDefault:
+        default:
+            [self.textDocumentProxy insertText:@"\n"];
+            break;
+    }
 }
 
 - (void)handleSpace {
@@ -319,13 +348,21 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 
 - (void)handleCharacter:(NSString *)output {
     NSString *single = output;
+    BOOL isLettersMode = (self.keyboardView.mode == FSHKeyboardModeLetters);
     if (single.length != 1) {
-        [self.textDocumentProxy insertText:single];
+        if (self.reverseState == FSHReverseStateActive) {
+            self.reverseState = FSHReverseStateEntering;
+        }
+        if (!isLettersMode && self.reverseState != FSHReverseStateActive && self.rawBuffer.length > 0) {
+            [self appendToRawBuffer:single];
+        } else {
+            [self.textDocumentProxy insertText:single];
+        }
         return;
     }
     unichar ch = [single characterAtIndex:0];
 
-    if (self.reverseState == FSHReverseStateActive && [self isCodeChar:ch]) {
+    if (self.reverseState == FSHReverseStateActive && ![self isDigit:ch]) {
         self.reverseState = FSHReverseStateEntering;
     }
 
@@ -341,8 +378,12 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
             }
             return;
         }
-        if (self.keyboardView.mode != FSHKeyboardModeLetters) {
-            [self.textDocumentProxy insertText:single];
+        if (!isLettersMode) {
+            if (self.rawBuffer.length == 0) {
+                [self.textDocumentProxy insertText:single];
+            } else {
+                [self appendToRawBuffer:single];
+            }
             return;
         }
         if (self.rawBuffer.length == 0) {
@@ -359,8 +400,12 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
         return;
     }
 
-    if (self.keyboardView.mode != FSHKeyboardModeLetters && self.reverseState != FSHReverseStateActive) {
-        [self.textDocumentProxy insertText:single];
+    if (!isLettersMode && self.reverseState != FSHReverseStateActive) {
+        if (self.rawBuffer.length == 0) {
+            [self.textDocumentProxy insertText:single];
+        } else {
+            [self appendToRawBuffer:single];
+        }
         return;
     }
 
@@ -424,6 +469,10 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
         return;
     }
     FSHCandidate *baseCandidate = self.candidates[index];
+    if (baseCandidate.value.length != 1) {
+        [self commitCandidateAtIndex:index typedCodeLength:[self currentPrefix].length isReverse:NO];
+        return;
+    }
     NSArray<FSHCandidate *> *reverse = [self.engine reverseLookupCandidatesForBaseValue:baseCandidate.value];
     self.candidates = reverse ?: @[];
     self.reverseState = FSHReverseStateActive;
@@ -564,18 +613,32 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
     self.moreLimit = [FSHSettings candidateMoreLimit];
     self.showShortestHint = [FSHSettings showShortestCodeHint];
     self.disableIMEInSensitive = [FSHSettings disableImeInSensitiveFields];
+    self.sensitiveIncludeNoPersonalized = [FSHSettings sensitiveIncludeNoPersonalizedLearning];
 
     NSString *layout = [FSHSettings keyboardLayout];
+    BOOL labelTop = [FSHSettings keyboardLabelTop];
+    BOOL leftShift = [FSHSettings keyboardLeftShift];
+    BOOL showNumberRow = [FSHSettings showNumberRow];
     if ([layout isEqualToString:@"standard_spacious"]) {
         self.keyboardView.layout = FSHKeyboardLayoutStandardSpacious;
-    } else if ([layout isEqualToString:@"standard_label_top"]) {
-        self.keyboardView.layout = FSHKeyboardLayoutStandardLabelTop;
     } else if ([layout isEqualToString:@"original"]) {
         self.keyboardView.layout = FSHKeyboardLayoutOriginal;
+    } else if ([layout isEqualToString:@"original_no_number"]) {
+        self.keyboardView.layout = FSHKeyboardLayoutOriginalNoNumber;
+        showNumberRow = NO;
+    } else if ([layout isEqualToString:@"standard_label_top"]) {
+        self.keyboardView.layout = FSHKeyboardLayoutStandard;
+        labelTop = YES;
+        if (![FSHSettings keyboardLabelTop]) {
+            [FSHSettings setKeyboardLabelTop:YES];
+        }
+        [FSHSettings setKeyboardLayout:@"standard"];
     } else {
         self.keyboardView.layout = FSHKeyboardLayoutStandard;
     }
-    self.keyboardView.showNumberRow = [FSHSettings showNumberRow];
+    self.keyboardView.labelTop = labelTop;
+    self.keyboardView.leftShift = leftShift;
+    self.keyboardView.showNumberRow = showNumberRow;
     [self.keyboardView reloadKeys];
 
     [self updatePreferredContentSize];
@@ -630,13 +693,30 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
         return;
     }
     BOOL sensitive = [self isSensitiveField];
-    self.isInSensitiveField = sensitive;
+    if (sensitive && !self.isInSensitiveField) {
+        self.isInSensitiveField = YES;
+        [self clearComposingState];
+        [self advanceToNextInputMode];
+        [self dismissKeyboard];
+    } else if (!sensitive && self.isInSensitiveField) {
+        self.isInSensitiveField = NO;
+    }
 }
 
 - (BOOL)isSensitiveField {
     id<UITextInputTraits> traits = (id)self.textDocumentProxy;
     if ([traits respondsToSelector:@selector(isSecureTextEntry)]) {
-        return traits.secureTextEntry;
+        if (traits.secureTextEntry) {
+            return YES;
+        }
+    }
+    if (self.sensitiveIncludeNoPersonalized && [traits respondsToSelector:@selector(textContentType)]) {
+        NSString *contentType = traits.textContentType;
+        if ([contentType isEqualToString:UITextContentTypePassword] ||
+            [contentType isEqualToString:UITextContentTypeNewPassword] ||
+            [contentType isEqualToString:UITextContentTypeOneTimeCode]) {
+            return YES;
+        }
     }
     return NO;
 }
@@ -645,7 +725,7 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
     if (!self.disableIMEInSensitive || !self.hasHostConnection) {
         return NO;
     }
-    return [self isSensitiveField];
+    return self.isInSensitiveField;
 }
 
 @end

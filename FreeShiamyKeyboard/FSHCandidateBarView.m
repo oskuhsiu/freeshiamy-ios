@@ -1,9 +1,9 @@
 #import "FSHCandidateBarView.h"
 #import "FSHCandidate.h"
 
-static const CGFloat kFSHCandidateBarHeight = 38.0;
+static const CGFloat kFSHCandidateBarHeight = 37.5;
 static const CGFloat kFSHCandidateMoreHeight = 180.0;
-static const CGFloat kFSHCandidateButtonHeight = 38.0;
+static const CGFloat kFSHCandidateButtonHeight = 37.5;
 static const NSUInteger kFSHCandidateMoreColumns = 5;
 
 @interface FSHCandidateBarView ()
@@ -25,6 +25,8 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 
 @property (nonatomic, copy) NSArray<FSHCandidate *> *currentCandidates;
 @property (nonatomic, assign) NSUInteger currentExactCount;
+@property (nonatomic, assign) NSUInteger currentInlineLimit;
+@property (nonatomic, assign) NSUInteger currentMoreLimit;
 
 @end
 
@@ -82,6 +84,8 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
                hintText:(NSString *)hintText {
     self.currentCandidates = candidates ?: @[];
     self.currentExactCount = exactCount;
+    self.currentInlineLimit = inlineLimit;
+    self.currentMoreLimit = moreLimit;
 
     NSString *rawText = rawBuffer ?: @"";
     [self.rawButton setTitle:rawText forState:UIControlStateNormal];
@@ -92,7 +96,11 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     self.hintLabel.hidden = !showHint;
     self.candidateArea.hidden = showHint;
 
-    if (showHint) {
+    BOOL hasContent = (rawText.length > 0 || self.currentCandidates.count > 0 || showHint);
+    self.topBar.hidden = !hasContent;
+    self.topBar.userInteractionEnabled = hasContent;
+
+    if (showHint || !hasContent) {
         [self setExpanded:NO animated:NO];
         return;
     }
@@ -106,7 +114,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     }
 
     if (self.isExpanded) {
-        [self rebuildMoreCandidatesWithLimit:moreLimit];
+        [self rebuildMoreCandidatesWithLimit:self.currentMoreLimit];
     }
 }
 
@@ -144,7 +152,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     self.candidateStack.translatesAutoresizingMaskIntoConstraints = NO;
     self.candidateStack.axis = UILayoutConstraintAxisHorizontal;
     self.candidateStack.alignment = UIStackViewAlignmentCenter;
-    self.candidateStack.spacing = 2.0;
+    self.candidateStack.spacing = 1.0;
     [self.scrollView addSubview:self.candidateStack];
 
     self.moreButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -301,7 +309,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     button.titleLabel.font = [self candidateFont];
     button.titleLabel.adjustsFontSizeToFitWidth = YES;
     button.titleLabel.minimumScaleFactor = 12.0 / 18.0;
-    button.contentEdgeInsets = UIEdgeInsetsMake(2, 8, 2, 8);
+    button.contentEdgeInsets = UIEdgeInsetsMake(2, 6, 2, 6);
     button.layer.cornerRadius = 6.0;
     button.layer.borderWidth = 0.5;
     button.layer.borderColor = [UIColor systemGray4Color].CGColor;
@@ -337,14 +345,14 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 - (void)handleMoreTap {
     [self setExpanded:!self.isExpanded animated:YES];
     if (self.isExpanded) {
-        [self rebuildMoreCandidatesWithLimit:0];
+        [self rebuildMoreCandidatesWithLimit:self.currentMoreLimit];
     }
 }
 
 - (void)layoutSubviews {
     [super layoutSubviews];
     if (self.isExpanded) {
-        [self rebuildMoreCandidatesWithLimit:0];
+        [self rebuildMoreCandidatesWithLimit:self.currentMoreLimit];
     }
 }
 

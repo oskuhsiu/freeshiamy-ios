@@ -16,6 +16,12 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)showNumberRow;
 + (void)setShowNumberRow:(BOOL)value;
 
++ (BOOL)keyboardLabelTop;
++ (void)setKeyboardLabelTop:(BOOL)value;
+
++ (BOOL)keyboardLeftShift;
++ (void)setKeyboardLeftShift:(BOOL)value;
+
 + (NSInteger)candidateInlineLimit;
 + (void)setCandidateInlineLimit:(NSInteger)value;
 

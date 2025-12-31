@@ -32,6 +32,8 @@
         _mode = FSHKeyboardModeLetters;
         _showNumberRow = YES;
         _showsGlobe = YES;
+        _labelTop = NO;
+        _leftShift = YES;
         self.backgroundColor = [UIColor systemGray5Color];
         [self reloadKeys];
     }
@@ -46,6 +48,8 @@
         _mode = FSHKeyboardModeLetters;
         _showNumberRow = YES;
         _showsGlobe = YES;
+        _labelTop = NO;
+        _leftShift = YES;
         self.backgroundColor = [UIColor systemGray5Color];
         [self reloadKeys];
     }
@@ -61,6 +65,10 @@
 }
 
 - (void)setLayout:(FSHKeyboardLayout)layout {
+    if (layout == FSHKeyboardLayoutStandardLabelTop) {
+        self.labelTop = YES;
+        layout = FSHKeyboardLayoutStandard;
+    }
     if (_layout == layout) {
         return;
     }
@@ -82,6 +90,22 @@
     }
     _showsGlobe = showsGlobe;
     [self reloadKeys];
+}
+
+- (void)setLabelTop:(BOOL)labelTop {
+    if (_labelTop == labelTop) {
+        return;
+    }
+    _labelTop = labelTop;
+    [self reloadKeys];
+}
+
+- (void)setLeftShift:(BOOL)leftShift {
+    if (_leftShift == leftShift) {
+        return;
+    }
+    _leftShift = leftShift;
+    [self setNeedsLayout];
 }
 
 - (void)setShiftOn:(BOOL)shiftOn {
@@ -136,13 +160,12 @@
 - (NSArray<NSArray<FSHKeyDescriptor *> *> *)letterRows {
     NSMutableArray<NSArray<FSHKeyDescriptor *> *> *rows = [NSMutableArray array];
 
-    if (self.showNumberRow) {
+    BOOL isOriginal = (self.layout == FSHKeyboardLayoutOriginal || self.layout == FSHKeyboardLayoutOriginalNoNumber);
+    BOOL showNumbers = self.showNumberRow && self.layout != FSHKeyboardLayoutOriginalNoNumber;
+    if (showNumbers) {
         NSMutableArray<FSHKeyDescriptor *> *numbers = [NSMutableArray array];
         for (NSString *digit in @[ @"1", @"2", @"3", @"4", @"5", @"6", @"7", @"8", @"9", @"0" ]) {
             [numbers addObject:[self key:digit output:digit code:0 weight:1.0 special:NO]];
-        }
-        if (self.layout == FSHKeyboardLayoutOriginal) {
-            [numbers addObject:[self key:@"⌫" output:nil code:FSHKeyCodeDelete weight:1.2 special:YES]];
         }
         [rows addObject:numbers];
     }
@@ -152,9 +175,6 @@
     for (NSString *letter in qRow) {
         [row1 addObject:[self key:letter output:letter.lowercaseString code:0 weight:1.0 special:NO]];
     }
-    if (self.layout == FSHKeyboardLayoutOriginal) {
-        [row1 addObject:[self key:@"?" output:@"?" code:0 weight:1.0 special:NO]];
-    }
     [rows addObject:row1];
 
     NSArray<NSString *> *aRow = @[ @"A", @"S", @"D", @"F", @"G", @"H", @"J", @"K", @"L" ];
@@ -162,7 +182,7 @@
     for (NSString *letter in aRow) {
         [row2 addObject:[self key:letter output:letter.lowercaseString code:0 weight:1.0 special:NO]];
     }
-    if (self.layout == FSHKeyboardLayoutOriginal) {
+    if (isOriginal) {
         [row2 addObject:[self key:@"'" output:@"'" code:0 weight:1.0 special:NO]];
     } else {
         [row2 addObject:[self key:@"⌫" output:nil code:FSHKeyCodeDelete weight:1.4 special:YES]];
@@ -171,26 +191,35 @@
 
     NSArray<NSString *> *zRow = @[ @"Z", @"X", @"C", @"V", @"B", @"N", @"M", @",", @"." ];
     NSMutableArray<FSHKeyDescriptor *> *row3 = [NSMutableArray array];
-    [row3 addObject:[self key:@"⇧" output:nil code:FSHKeyCodeShift weight:1.4 special:YES]];
+    CGFloat shiftWeight = isOriginal ? 1.0 : 1.4;
+    [row3 addObject:[self key:@"⇧" output:nil code:FSHKeyCodeShift weight:shiftWeight special:YES]];
     for (NSString *letter in zRow) {
         [row3 addObject:[self key:letter output:letter.lowercaseString code:0 weight:1.0 special:NO]];
-    }
-    if (self.layout == FSHKeyboardLayoutOriginal) {
-        [row3 addObject:[self key:@"⌫" output:nil code:FSHKeyCodeDelete weight:1.2 special:YES]];
     }
     [rows addObject:row3];
 
     NSMutableArray<FSHKeyDescriptor *> *row4 = [NSMutableArray array];
-    [row4 addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.6 special:YES]];
-    [row4 addObject:[self key:@"123" output:nil code:FSHKeyCodeModeChange weight:1.4 special:YES]];
-    if (self.showsGlobe) {
-        [row4 addObject:[self key:@"🌐" output:nil code:FSHKeyCodeGlobe weight:1.2 special:YES]];
-    }
-    [row4 addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:self.showsGlobe ? 4.0 : 4.6 special:YES]];
-    if (self.layout != FSHKeyboardLayoutOriginal) {
+    if (isOriginal) {
+        [row4 addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.0 special:YES]];
+        CGFloat modeWeight = self.showsGlobe ? 1.0 : 2.0;
+        [row4 addObject:[self key:@"123" output:nil code:FSHKeyCodeModeChange weight:modeWeight special:YES]];
+        if (self.showsGlobe) {
+            [row4 addObject:[self key:@"🌐" output:nil code:FSHKeyCodeGlobe weight:1.0 special:YES]];
+        }
+        [row4 addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:4.0 special:YES]];
+        [row4 addObject:[self key:@"⌫" output:nil code:FSHKeyCodeDelete weight:1.5 special:YES]];
+        [row4 addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:1.5 special:YES]];
+    } else {
+        [row4 addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.6 special:YES]];
+        CGFloat modeWeight = self.showsGlobe ? 1.4 : 2.6;
+        [row4 addObject:[self key:@"123" output:nil code:FSHKeyCodeModeChange weight:modeWeight special:YES]];
+        if (self.showsGlobe) {
+            [row4 addObject:[self key:@"🌐" output:nil code:FSHKeyCodeGlobe weight:1.2 special:YES]];
+        }
+        [row4 addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:4.0 special:YES]];
         [row4 addObject:[self key:@"'" output:@"'" code:0 weight:1.0 special:NO]];
+        [row4 addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:1.6 special:YES]];
     }
-    [row4 addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:1.6 special:YES]];
     [rows addObject:row4];
 
     return rows;
@@ -207,7 +236,7 @@
     [rows addObject:numbers];
 
     NSArray<NSString *> *row1 = shifted ? @[ @"_", @"\\", @"|", @"~", @"<", @">", @"€", @"£", @"¥", @"•" ]
-                                     : @[ @"-", @"/", @":", @";", @"(", @")", @"$", @"&", @"@", @"\"" ];
+                                     : @[ @"-", @"/", @":", @";", @"(", @")", @"$", @"&", @"@", @"'" ];
     NSMutableArray<FSHKeyDescriptor *> *symbols1 = [NSMutableArray array];
     for (NSString *symbol in row1) {
         [symbols1 addObject:[self key:symbol output:symbol code:0 weight:1.0 special:NO]];
@@ -226,11 +255,12 @@
 
     NSMutableArray<FSHKeyDescriptor *> *bottom = [NSMutableArray array];
     [bottom addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.6 special:YES]];
-    [bottom addObject:[self key:@"ABC" output:nil code:FSHKeyCodeModeChange weight:1.4 special:YES]];
+    CGFloat modeWeight = self.showsGlobe ? 1.4 : 2.6;
+    [bottom addObject:[self key:@"ABC" output:nil code:FSHKeyCodeModeChange weight:modeWeight special:YES]];
     if (self.showsGlobe) {
         [bottom addObject:[self key:@"🌐" output:nil code:FSHKeyCodeGlobe weight:1.2 special:YES]];
     }
-    [bottom addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:self.showsGlobe ? 4.0 : 4.6 special:YES]];
+    [bottom addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:4.0 special:YES]];
     if (shifted) {
         [bottom addObject:[self key:@"…" output:@"…" code:0 weight:1.0 special:NO]];
     } else {
@@ -263,11 +293,12 @@
 
     NSMutableArray<FSHKeyDescriptor *> *bottom = [NSMutableArray array];
     [bottom addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.6 special:YES]];
-    [bottom addObject:[self key:@"ABC" output:nil code:FSHKeyCodeModeChange weight:1.4 special:YES]];
+    CGFloat modeWeight = self.showsGlobe ? 1.4 : 2.6;
+    [bottom addObject:[self key:@"ABC" output:nil code:FSHKeyCodeModeChange weight:modeWeight special:YES]];
     if (self.showsGlobe) {
         [bottom addObject:[self key:@"🌐" output:nil code:FSHKeyCodeGlobe weight:1.2 special:YES]];
     }
-    [bottom addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:self.showsGlobe ? 4.0 : 4.6 special:YES]];
+    [bottom addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:4.0 special:YES]];
     [bottom addObject:[self key:@"," output:@"," code:0 weight:1.0 special:NO]];
     [bottom addObject:[self key:@"." output:@"." code:0 weight:1.0 special:NO]];
     [bottom addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:1.6 special:YES]];
@@ -322,7 +353,7 @@
         self.emojiButton = button;
     }
 
-    if (self.layout == FSHKeyboardLayoutStandardLabelTop && !descriptor.isSpecial && descriptor.label.length > 0) {
+    if (self.labelTop && !descriptor.isSpecial && descriptor.label.length > 0) {
         button.contentVerticalAlignment = UIControlContentVerticalAlignmentTop;
         button.contentEdgeInsets = UIEdgeInsetsMake(6, 0, 0, 0);
     }
@@ -345,6 +376,9 @@
     if (self.layout == FSHKeyboardLayoutStandardSpacious) {
         hGap = totalWidth * 0.015;
         sideInset = totalWidth * 0.0575;
+    } else if (self.layout == FSHKeyboardLayoutOriginal || self.layout == FSHKeyboardLayoutOriginalNoNumber) {
+        hGap = 0.0;
+        sideInset = 0.0;
     }
 
     for (NSUInteger rowIndex = 0; rowIndex < rowsCount; rowIndex++) {
@@ -352,7 +386,7 @@
         CGFloat rowInsetUnitsLeft = 0.0;
         CGFloat rowInsetUnitsRight = 0.0;
         BOOL shrinkDeleteHalf = NO;
-        if (self.mode == FSHKeyboardModeLetters && self.layout != FSHKeyboardLayoutOriginal) {
+        if (self.mode == FSHKeyboardModeLetters && self.leftShift && self.layout != FSHKeyboardLayoutOriginal && self.layout != FSHKeyboardLayoutOriginalNoNumber) {
             FSHKeyButton *first = row.firstObject;
             NSString *label = [first titleForState:UIControlStateNormal];
             if ([label isEqualToString:@"1"] || [label isEqualToString:@"Q"]) {

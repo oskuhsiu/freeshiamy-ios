@@ -5,6 +5,8 @@ static NSString *const kFSHAppGroup = @"group.osku.me.freeshiamy";
 static NSString *const kFSHKeyKeyboardHeightPercent = @"keyboard_height_percent";
 static NSString *const kFSHKeyKeyboardLayout = @"keyboard_layout";
 static NSString *const kFSHKeyShowNumberRow = @"show_number_row";
+static NSString *const kFSHKeyKeyboardLabelTop = @"keyboard_label_top";
+static NSString *const kFSHKeyKeyboardLeftShift = @"keyboard_left_shift";
 static NSString *const kFSHKeyCandidateInlineLimit = @"candidate_inline_limit";
 static NSString *const kFSHKeyCandidateMoreLimit = @"candidate_more_limit";
 static NSString *const kFSHKeyShowShortestCodeHint = @"show_shortest_code_hint";
@@ -23,6 +25,8 @@ static NSString *const kFSHKeySensitiveNoPersonalized = @"sensitive_field_includ
         kFSHKeyKeyboardHeightPercent: @100,
         kFSHKeyKeyboardLayout: @"standard",
         kFSHKeyShowNumberRow: @YES,
+        kFSHKeyKeyboardLabelTop: @NO,
+        kFSHKeyKeyboardLeftShift: @YES,
         kFSHKeyCandidateInlineLimit: @10,
         kFSHKeyCandidateMoreLimit: @200,
         kFSHKeyShowShortestCodeHint: @YES,
@@ -58,6 +62,22 @@ static NSString *const kFSHKeySensitiveNoPersonalized = @"sensitive_field_includ
 
 + (void)setShowNumberRow:(BOOL)value {
     [[self sharedDefaults] setBool:value forKey:kFSHKeyShowNumberRow];
+}
+
++ (BOOL)keyboardLabelTop {
+    return [[self sharedDefaults] boolForKey:kFSHKeyKeyboardLabelTop];
+}
+
++ (void)setKeyboardLabelTop:(BOOL)value {
+    [[self sharedDefaults] setBool:value forKey:kFSHKeyKeyboardLabelTop];
+}
+
++ (BOOL)keyboardLeftShift {
+    return [[self sharedDefaults] boolForKey:kFSHKeyKeyboardLeftShift];
+}
+
++ (void)setKeyboardLeftShift:(BOOL)value {
+    [[self sharedDefaults] setBool:value forKey:kFSHKeyKeyboardLeftShift];
 }
 
 + (NSInteger)candidateInlineLimit {
