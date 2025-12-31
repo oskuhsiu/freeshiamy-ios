@@ -60,6 +60,7 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 
     self.keyboardView = [[FSHKeyboardView alloc] initWithFrame:CGRectZero];
     self.keyboardView.delegate = self;
+    self.keyboardView.showsGlobe = NO;
     [self.view addSubview:self.keyboardView];
 
     self.candidateBar.translatesAutoresizingMaskIntoConstraints = NO;
@@ -76,10 +77,8 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
         [self.keyboardView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
     ]];
     self.candidateBarHeightConstraint = [self.candidateBar.heightAnchor constraintEqualToConstant:self.candidateBar.barHeight];
+    self.candidateBarHeightConstraint.priority = UILayoutPriorityDefaultHigh;
     self.candidateBarHeightConstraint.active = YES;
-    self.heightConstraint = [self.view.heightAnchor constraintEqualToConstant:0.0];
-    self.heightConstraint.active = YES;
-
     self.engine = [[FSHShiamyEngine alloc] init];
     [self loadEngineAsync];
 
@@ -94,13 +93,10 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
-    self.hasHostConnection = YES;
-    [self updateGlobeKeyVisibility];
 }
 
 - (void)textWillChange:(id<UITextInput>)textInput {
     [super textWillChange:textInput];
-    self.hasHostConnection = YES;
     [self handleSensitiveFieldIfNeeded];
 }
 
@@ -108,7 +104,6 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
     [super textDidChange:textInput];
     self.hasHostConnection = YES;
     [self handleSensitiveFieldIfNeeded];
-    [self updateGlobeKeyVisibility];
 }
 
 - (void)selectionWillChange:(id<UITextInput>)textInput {
@@ -454,7 +449,7 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 - (void)startDeleteRepeat {
     [self handleDeleteOnce];
     [self stopDeleteRepeat];
-    self.deleteRepeatTimer = [NSTimer scheduledTimerWithTimeInterval:0.08 target:self selector:@selector(handleDeleteOnce) userInfo:nil repeats:YES];
+    self.deleteRepeatTimer = [NSTimer scheduledTimerWithTimeInterval:0.16 target:self selector:@selector(handleDeleteOnce) userInfo:nil repeats:YES];
 }
 
 - (void)stopDeleteRepeat {
@@ -645,14 +640,6 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
     [self refreshCandidatesAndUI];
 }
 
-- (void)updateGlobeKeyVisibility {
-    BOOL shouldShow = self.needsInputModeSwitchKey;
-    if (self.keyboardView.showsGlobe != shouldShow) {
-        self.keyboardView.showsGlobe = shouldShow;
-        [self.keyboardView reloadKeys];
-    }
-}
-
 - (void)updatePreferredContentSize {
     NSInteger percent = [FSHSettings keyboardHeightPercent];
     if (percent < 90) { percent = 90; }
@@ -664,9 +651,15 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
         total += self.candidateBar.expandedHeight;
     }
     self.preferredContentSize = CGSizeMake(0, total);
-    if (self.heightConstraint) {
+    if (!self.heightConstraint) {
+        self.heightConstraint = [self.view.heightAnchor constraintEqualToConstant:total];
+        self.heightConstraint.priority = UILayoutPriorityDefaultHigh;
+        self.heightConstraint.active = YES;
+    } else {
         self.heightConstraint.constant = total;
-        [self.view setNeedsLayout];
+    }
+    [self.view setNeedsLayout];
+    if (self.view.window) {
         [self.view layoutIfNeeded];
     }
 }
@@ -681,7 +674,9 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
     }
     self.candidateBarHeightConstraint.constant = height;
     [self.view setNeedsLayout];
-    [self.view layoutIfNeeded];
+    if (self.view.window) {
+        [self.view layoutIfNeeded];
+    }
 }
 
 - (void)handleSensitiveFieldIfNeeded {

@@ -31,7 +31,7 @@
         _layout = FSHKeyboardLayoutStandard;
         _mode = FSHKeyboardModeLetters;
         _showNumberRow = YES;
-        _showsGlobe = YES;
+        _showsGlobe = NO;
         _labelTop = NO;
         _leftShift = YES;
         self.backgroundColor = [UIColor systemGray5Color];
@@ -47,7 +47,7 @@
         _layout = FSHKeyboardLayoutStandard;
         _mode = FSHKeyboardModeLetters;
         _showNumberRow = YES;
-        _showsGlobe = YES;
+        _showsGlobe = NO;
         _labelTop = NO;
         _leftShift = YES;
         self.backgroundColor = [UIColor systemGray5Color];
@@ -200,25 +200,23 @@
 
     NSMutableArray<FSHKeyDescriptor *> *row4 = [NSMutableArray array];
     if (isOriginal) {
-        [row4 addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.0 special:YES]];
-        CGFloat modeWeight = self.showsGlobe ? 1.0 : 2.0;
+        [row4 addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.5 special:YES]];
+        CGFloat modeWeight = 1.5;
+        [row4 addObject:[self key:@"123" output:nil code:FSHKeyCodeModeChange weight:modeWeight special:YES]];
+        [row4 addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:4.0 special:YES]];
+        [row4 addObject:[self key:@"⌫" output:nil code:FSHKeyCodeDelete weight:1.5 special:YES]];
+        [row4 addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:1.5 special:YES]];
+    } else {
+        [row4 addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.5 special:YES]];
+        CGFloat modeWeight = 1.5;
         [row4 addObject:[self key:@"123" output:nil code:FSHKeyCodeModeChange weight:modeWeight special:YES]];
         if (self.showsGlobe) {
             [row4 addObject:[self key:@"🌐" output:nil code:FSHKeyCodeGlobe weight:1.0 special:YES]];
         }
         [row4 addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:4.0 special:YES]];
-        [row4 addObject:[self key:@"⌫" output:nil code:FSHKeyCodeDelete weight:1.5 special:YES]];
-        [row4 addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:1.5 special:YES]];
-    } else {
-        [row4 addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.6 special:YES]];
-        CGFloat modeWeight = self.showsGlobe ? 1.4 : 2.6;
-        [row4 addObject:[self key:@"123" output:nil code:FSHKeyCodeModeChange weight:modeWeight special:YES]];
-        if (self.showsGlobe) {
-            [row4 addObject:[self key:@"🌐" output:nil code:FSHKeyCodeGlobe weight:1.2 special:YES]];
-        }
-        [row4 addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:4.0 special:YES]];
         [row4 addObject:[self key:@"'" output:@"'" code:0 weight:1.0 special:NO]];
-        [row4 addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:1.6 special:YES]];
+        CGFloat enterWeight = self.showsGlobe ? 1.0 : 2.0;
+        [row4 addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:enterWeight special:YES]];
     }
     [rows addObject:row4];
 
@@ -254,20 +252,21 @@
     [rows addObject:symbols2];
 
     NSMutableArray<FSHKeyDescriptor *> *bottom = [NSMutableArray array];
-    [bottom addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.6 special:YES]];
-    CGFloat modeWeight = self.showsGlobe ? 1.4 : 2.6;
+    [bottom addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.0 special:YES]];
+    CGFloat modeWeight = 1.5;
     [bottom addObject:[self key:@"ABC" output:nil code:FSHKeyCodeModeChange weight:modeWeight special:YES]];
     if (self.showsGlobe) {
-        [bottom addObject:[self key:@"🌐" output:nil code:FSHKeyCodeGlobe weight:1.2 special:YES]];
+        [bottom addObject:[self key:@"🌐" output:nil code:FSHKeyCodeGlobe weight:1.0 special:YES]];
     }
     [bottom addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:4.0 special:YES]];
     if (shifted) {
-        [bottom addObject:[self key:@"…" output:@"…" code:0 weight:1.0 special:NO]];
+        [bottom addObject:[self key:@"…" output:@"…" code:0 weight:0.75 special:NO]];
     } else {
-        [bottom addObject:[self key:@"," output:@"," code:0 weight:1.0 special:NO]];
+        [bottom addObject:[self key:@"," output:@"," code:0 weight:0.75 special:NO]];
     }
-    [bottom addObject:[self key:@"." output:@"." code:0 weight:1.0 special:NO]];
-    [bottom addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:1.6 special:YES]];
+    [bottom addObject:[self key:@"." output:@"." code:0 weight:0.75 special:NO]];
+    CGFloat enterWeight = self.showsGlobe ? 1.0 : 2.0;
+    [bottom addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:enterWeight special:YES]];
     [rows addObject:bottom];
 
     return rows;
@@ -292,16 +291,17 @@
     }
 
     NSMutableArray<FSHKeyDescriptor *> *bottom = [NSMutableArray array];
-    [bottom addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.6 special:YES]];
-    CGFloat modeWeight = self.showsGlobe ? 1.4 : 2.6;
+    [bottom addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.0 special:YES]];
+    CGFloat modeWeight = 1.5;
     [bottom addObject:[self key:@"ABC" output:nil code:FSHKeyCodeModeChange weight:modeWeight special:YES]];
     if (self.showsGlobe) {
-        [bottom addObject:[self key:@"🌐" output:nil code:FSHKeyCodeGlobe weight:1.2 special:YES]];
+        [bottom addObject:[self key:@"🌐" output:nil code:FSHKeyCodeGlobe weight:1.0 special:YES]];
     }
     [bottom addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:4.0 special:YES]];
-    [bottom addObject:[self key:@"," output:@"," code:0 weight:1.0 special:NO]];
-    [bottom addObject:[self key:@"." output:@"." code:0 weight:1.0 special:NO]];
-    [bottom addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:1.6 special:YES]];
+    [bottom addObject:[self key:@"," output:@"," code:0 weight:0.75 special:NO]];
+    [bottom addObject:[self key:@"." output:@"." code:0 weight:0.75 special:NO]];
+    CGFloat enterWeight = self.showsGlobe ? 1.0 : 2.0;
+    [bottom addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:enterWeight special:YES]];
     [rows addObject:bottom];
 
     return rows;
@@ -377,8 +377,9 @@
         hGap = totalWidth * 0.015;
         sideInset = totalWidth * 0.0575;
     } else if (self.layout == FSHKeyboardLayoutOriginal || self.layout == FSHKeyboardLayoutOriginalNoNumber) {
-        hGap = 0.0;
+        hGap = 1.0;
         sideInset = 0.0;
+        rowGap = 1.0;
     }
 
     for (NSUInteger rowIndex = 0; rowIndex < rowsCount; rowIndex++) {

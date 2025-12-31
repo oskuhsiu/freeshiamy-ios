@@ -82,40 +82,53 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
             inlineLimit:(NSUInteger)inlineLimit
               moreLimit:(NSUInteger)moreLimit
                hintText:(NSString *)hintText {
-    self.currentCandidates = candidates ?: @[];
-    self.currentExactCount = exactCount;
-    self.currentInlineLimit = inlineLimit;
-    self.currentMoreLimit = moreLimit;
+    [UIView performWithoutAnimation:^{
+        BOOL canLayoutNow = (self.window && self.bounds.size.width > 0.0 && self.bounds.size.height > 0.0);
+        self.currentCandidates = candidates ?: @[];
+        self.currentExactCount = exactCount;
+        self.currentInlineLimit = inlineLimit;
+        self.currentMoreLimit = moreLimit;
 
-    NSString *rawText = rawBuffer ?: @"";
-    [self.rawButton setTitle:rawText forState:UIControlStateNormal];
-    self.rawButton.hidden = (rawText.length == 0);
+        NSString *rawText = rawBuffer ?: @"";
+        [self.rawButton setTitle:rawText forState:UIControlStateNormal];
+        self.rawButton.hidden = (rawText.length == 0);
 
-    BOOL showHint = (rawText.length == 0 && hintText.length > 0);
-    self.hintLabel.text = hintText ?: @"";
-    self.hintLabel.hidden = !showHint;
-    self.candidateArea.hidden = showHint;
+        BOOL showHint = (rawText.length == 0 && hintText.length > 0);
+        self.hintLabel.text = hintText ?: @"";
+        self.hintLabel.hidden = !showHint;
+        self.candidateArea.hidden = showHint;
 
-    BOOL hasContent = (rawText.length > 0 || self.currentCandidates.count > 0 || showHint);
-    self.topBar.hidden = !hasContent;
-    self.topBar.userInteractionEnabled = hasContent;
+        BOOL hasContent = (rawText.length > 0 || self.currentCandidates.count > 0 || showHint);
+        self.topBar.hidden = !hasContent;
+        self.topBar.userInteractionEnabled = hasContent;
 
-    if (showHint || !hasContent) {
-        [self setExpanded:NO animated:NO];
-        return;
-    }
+        if (showHint || !hasContent) {
+            [self setExpanded:NO animated:NO];
+            if (canLayoutNow) {
+                [self layoutIfNeeded];
+            } else {
+                [self setNeedsLayout];
+            }
+            return;
+        }
 
-    [self rebuildInlineCandidatesWithLimit:inlineLimit];
+        [self rebuildInlineCandidatesWithLimit:inlineLimit];
 
-    BOOL showMoreButton = (self.currentCandidates.count > inlineLimit);
-    self.moreButton.hidden = !showMoreButton;
-    if (!showMoreButton) {
-        [self setExpanded:NO animated:NO];
-    }
+        BOOL showMoreButton = (self.currentCandidates.count > inlineLimit);
+        self.moreButton.hidden = !showMoreButton;
+        if (!showMoreButton) {
+            [self setExpanded:NO animated:NO];
+        }
 
-    if (self.isExpanded) {
-        [self rebuildMoreCandidatesWithLimit:self.currentMoreLimit];
-    }
+        if (self.isExpanded) {
+            [self rebuildMoreCandidatesWithLimit:self.currentMoreLimit];
+        }
+        if (canLayoutNow) {
+            [self layoutIfNeeded];
+        } else {
+            [self setNeedsLayout];
+        }
+    }];
 }
 
 - (void)setupViews {
@@ -130,7 +143,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     self.rawButton.titleLabel.font = [self candidateFont];
     self.rawButton.titleLabel.adjustsFontSizeToFitWidth = YES;
     self.rawButton.titleLabel.minimumScaleFactor = 12.0 / 18.0;
-    self.rawButton.contentEdgeInsets = UIEdgeInsetsMake(2, 6, 2, 6);
+    self.rawButton.contentEdgeInsets = UIEdgeInsetsMake(1, 7, 1, 7);
     self.rawButton.layer.cornerRadius = 6.0;
     self.rawButton.backgroundColor = [UIColor systemGray5Color];
     [self.rawButton setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
@@ -309,7 +322,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     button.titleLabel.font = [self candidateFont];
     button.titleLabel.adjustsFontSizeToFitWidth = YES;
     button.titleLabel.minimumScaleFactor = 12.0 / 18.0;
-    button.contentEdgeInsets = UIEdgeInsetsMake(2, 6, 2, 6);
+    button.contentEdgeInsets = UIEdgeInsetsMake(1, 7, 1, 7);
     button.layer.cornerRadius = 6.0;
     button.layer.borderWidth = 0.5;
     button.layer.borderColor = [UIColor systemGray4Color].CGColor;

@@ -1,7 +1,2 @@
 // Shared signing settings. Local overrides should live in Local.xcconfig (not tracked).
 #include "Local.xcconfig"
-
-CODE_SIGN_STYLE = Automatic
-DEVELOPMENT_TEAM =
-CODE_SIGN_IDENTITY =
-PROVISIONING_PROFILE_SPECIFIER =

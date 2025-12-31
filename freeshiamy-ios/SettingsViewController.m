@@ -56,7 +56,7 @@
     layoutLabel.text = @"鍵盤排版";
     [stack addArrangedSubview:layoutLabel];
 
-    self.layoutSegment = [[UISegmentedControl alloc] initWithItems:@[@"標準", @"間距", @"原始", @"原始無數字"]];
+    self.layoutSegment = [[UISegmentedControl alloc] initWithItems:@[@"標準", @"間距", @"原始"]];
     [self.layoutSegment addTarget:self action:@selector(layoutChanged:) forControlEvents:UIControlEventValueChanged];
     [stack addArrangedSubview:self.layoutSegment];
 
@@ -146,13 +146,16 @@
     self.heightValueLabel.text = [NSString stringWithFormat:@"%ld%%", (long)height];
 
     NSString *layout = [FSHSettings keyboardLayout];
+    if ([layout isEqualToString:@"original_no_number"]) {
+        [FSHSettings setKeyboardLayout:@"original"];
+        [FSHSettings setShowNumberRow:NO];
+        layout = @"original";
+    }
     BOOL legacyLabelTop = [layout isEqualToString:@"standard_label_top"];
     if ([layout isEqualToString:@"standard_spacious"]) {
         self.layoutSegment.selectedSegmentIndex = 1;
     } else if ([layout isEqualToString:@"original"]) {
         self.layoutSegment.selectedSegmentIndex = 2;
-    } else if ([layout isEqualToString:@"original_no_number"]) {
-        self.layoutSegment.selectedSegmentIndex = 3;
     } else {
         self.layoutSegment.selectedSegmentIndex = 0;
     }
@@ -160,7 +163,6 @@
     self.numberRowSwitch.on = [FSHSettings showNumberRow];
     self.labelTopSwitch.on = legacyLabelTop ? YES : [FSHSettings keyboardLabelTop];
     self.leftShiftSwitch.on = [FSHSettings keyboardLeftShift];
-    self.numberRowSwitch.enabled = ![layout isEqualToString:@"original_no_number"];
     BOOL leftShiftApplicable = ([layout isEqualToString:@"standard"] || [layout isEqualToString:@"standard_spacious"] || [layout isEqualToString:@"standard_label_top"]);
     self.leftShiftSwitch.enabled = leftShiftApplicable;
 
@@ -188,11 +190,9 @@
     switch (segment.selectedSegmentIndex) {
         case 1: value = @"standard_spacious"; break;
         case 2: value = @"original"; break;
-        case 3: value = @"original_no_number"; break;
         default: value = @"standard"; break;
     }
     [FSHSettings setKeyboardLayout:value];
-    self.numberRowSwitch.enabled = ![value isEqualToString:@"original_no_number"];
     self.leftShiftSwitch.enabled = ([value isEqualToString:@"standard"] || [value isEqualToString:@"standard_spacious"]);
 }
 
