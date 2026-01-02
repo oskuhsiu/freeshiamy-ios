@@ -48,7 +48,11 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 - (void)viewDidLoad {
     [super viewDidLoad];
 
-    self.view.backgroundColor = [UIColor systemGray5Color];
+    if (@available(iOS 13.0, *)) {
+        self.view.backgroundColor = [UIColor systemBackgroundColor];
+    } else {
+        self.view.backgroundColor = [UIColor colorWithWhite:0.9 alpha:1.0];
+    }
     self.rawBuffer = [NSMutableString string];
     self.candidates = @[];
     self.reverseState = FSHReverseStateNone;

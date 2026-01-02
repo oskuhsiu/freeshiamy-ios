@@ -34,7 +34,7 @@
         _showsGlobe = NO;
         _labelTop = NO;
         _leftShift = YES;
-        self.backgroundColor = [UIColor systemGray5Color];
+        self.backgroundColor = [self keyboardBackgroundColor];
         [self reloadKeys];
     }
     return self;
@@ -50,7 +50,7 @@
         _showsGlobe = NO;
         _labelTop = NO;
         _leftShift = YES;
-        self.backgroundColor = [UIColor systemGray5Color];
+        self.backgroundColor = [self keyboardBackgroundColor];
         [self reloadKeys];
     }
     return self;
@@ -324,8 +324,12 @@
     button.titleLabel.font = [UIFont systemFontOfSize:18.0 weight:UIFontWeightRegular];
     [button setTitle:descriptor.label forState:UIControlStateNormal];
     button.layer.cornerRadius = 6.0;
-    button.backgroundColor = descriptor.isSpecial ? [UIColor systemGray4Color] : [UIColor whiteColor];
-    [button setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
+    button.backgroundColor = descriptor.isSpecial ? [self specialKeyBackgroundColor] : [self normalKeyBackgroundColor];
+    UIColor *titleColor = [UIColor labelColor];
+    [button setTitleColor:titleColor forState:UIControlStateNormal];
+    [button setTitleColor:titleColor forState:UIControlStateHighlighted];
+    [button setTitleColor:titleColor forState:UIControlStateSelected];
+    button.tintColor = titleColor;
     [button addTarget:self action:@selector(handleKeyPress:) forControlEvents:UIControlEventTouchUpInside];
 
     if (descriptor.keyCode == FSHKeyCodeDelete) {
@@ -480,9 +484,33 @@
         self.shiftButton.backgroundColor = [UIColor systemBlueColor];
         [self.shiftButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     } else {
-        self.shiftButton.backgroundColor = [UIColor systemGray4Color];
-        [self.shiftButton setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
+        self.shiftButton.backgroundColor = [self specialKeyBackgroundColor];
+        UIColor *titleColor = [UIColor labelColor];
+        [self.shiftButton setTitleColor:titleColor forState:UIControlStateNormal];
+        [self.shiftButton setTitleColor:titleColor forState:UIControlStateHighlighted];
+        [self.shiftButton setTitleColor:titleColor forState:UIControlStateSelected];
     }
+}
+
+- (UIColor *)keyboardBackgroundColor {
+    if (@available(iOS 13.0, *)) {
+        return [UIColor systemBackgroundColor];
+    }
+    return [UIColor colorWithWhite:0.9 alpha:1.0];
+}
+
+- (UIColor *)normalKeyBackgroundColor {
+    if (@available(iOS 13.0, *)) {
+        return [UIColor secondarySystemBackgroundColor];
+    }
+    return [UIColor whiteColor];
+}
+
+- (UIColor *)specialKeyBackgroundColor {
+    if (@available(iOS 13.0, *)) {
+        return [UIColor tertiarySystemBackgroundColor];
+    }
+    return [UIColor colorWithWhite:0.85 alpha:1.0];
 }
 
 @end
