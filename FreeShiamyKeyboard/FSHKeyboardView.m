@@ -182,9 +182,7 @@
     for (NSString *letter in aRow) {
         [row2 addObject:[self key:letter output:letter.lowercaseString code:0 weight:1.0 special:NO]];
     }
-    if (isOriginal) {
-        [row2 addObject:[self key:@"'" output:@"'" code:0 weight:1.0 special:NO]];
-    } else {
+    if (!isOriginal) {
         [row2 addObject:[self key:@"⌫" output:nil code:FSHKeyCodeDelete weight:1.4 special:YES]];
     }
     [rows addObject:row2];
@@ -200,12 +198,12 @@
 
     NSMutableArray<FSHKeyDescriptor *> *row4 = [NSMutableArray array];
     if (isOriginal) {
-        [row4 addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.5 special:YES]];
-        CGFloat modeWeight = 1.5;
-        [row4 addObject:[self key:@"123" output:nil code:FSHKeyCodeModeChange weight:modeWeight special:YES]];
+        [row4 addObject:[self key:@"⌄" output:nil code:FSHKeyCodeCancel weight:1.0 special:YES]];
+        [row4 addObject:[self key:@"123" output:nil code:FSHKeyCodeModeChange weight:1.0 special:YES]];
+        [row4 addObject:[self key:@"'" output:@"'" code:0 weight:1.0 special:NO]];
         [row4 addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:4.0 special:YES]];
         [row4 addObject:[self key:@"⌫" output:nil code:FSHKeyCodeDelete weight:1.5 special:YES]];
-        [row4 addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:1.5 special:YES]];
+        [row4 addObject:[self key:@"送出" output:nil code:FSHKeyCodeEnter weight:1.5 special:YES]];
     } else {
         [row4 addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.5 special:YES]];
         CGFloat modeWeight = 1.5;
@@ -387,6 +385,8 @@
         CGFloat rowInsetUnitsLeft = 0.0;
         CGFloat rowInsetUnitsRight = 0.0;
         BOOL shrinkDeleteHalf = NO;
+        BOOL isOriginal = (self.layout == FSHKeyboardLayoutOriginal || self.layout == FSHKeyboardLayoutOriginalNoNumber);
+        BOOL isOriginalARow = NO;
         if (self.mode == FSHKeyboardModeLetters && self.leftShift && self.layout != FSHKeyboardLayoutOriginal && self.layout != FSHKeyboardLayoutOriginalNoNumber) {
             FSHKeyButton *first = row.firstObject;
             NSString *label = [first titleForState:UIControlStateNormal];
@@ -397,6 +397,11 @@
                 rowInsetUnitsLeft = 1.0;
                 shrinkDeleteHalf = YES;
             }
+        }
+        if (isOriginal) {
+            FSHKeyButton *first = row.firstObject;
+            NSString *label = [first titleForState:UIControlStateNormal];
+            isOriginalARow = [label isEqualToString:@"A"];
         }
         CGFloat totalWeight = 0.0;
         for (FSHKeyButton *button in row) {
@@ -410,6 +415,10 @@
         CGFloat unitWidth = totalWeight > 0 ? (availableWidth / (totalWeight + rowInsetUnitsLeft + rowInsetUnitsRight)) : 0.0;
         CGFloat rowInsetLeft = unitWidth * rowInsetUnitsLeft;
         CGFloat rowInsetRight = unitWidth * rowInsetUnitsRight;
+        if (isOriginalARow) {
+            rowInsetLeft = totalWidth * 0.05;
+            rowInsetRight = totalWidth * 0.05;
+        }
         CGFloat adjustedAvailableWidth = availableWidth - rowInsetLeft - rowInsetRight;
         CGFloat adjustedUnitWidth = totalWeight > 0 ? (adjustedAvailableWidth / totalWeight) : 0.0;
         CGFloat x = sideInset + rowInsetLeft;

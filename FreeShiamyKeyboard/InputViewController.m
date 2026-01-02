@@ -611,6 +611,7 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
     self.sensitiveIncludeNoPersonalized = [FSHSettings sensitiveIncludeNoPersonalizedLearning];
 
     NSString *layout = [FSHSettings keyboardLayout];
+    NSLog(@"[Keyboard] layout setting = %@", layout);
     BOOL labelTop = [FSHSettings keyboardLabelTop];
     BOOL leftShift = [FSHSettings keyboardLeftShift];
     BOOL showNumberRow = [FSHSettings showNumberRow];

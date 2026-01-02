@@ -3,6 +3,8 @@
 <plist version="1.0">
 <dict>
 	<key>com.apple.security.application-groups</key>
-	<array/>
+	<array>
+		<string>group.osku.me.freeshiamy_ios</string>
+	</array>
 </dict>
 </plist>
