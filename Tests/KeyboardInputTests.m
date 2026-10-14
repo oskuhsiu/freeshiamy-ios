@@ -340,6 +340,54 @@ static NSString *FSHFixtureSuiteName;
     [self waitForExpectations:@[elapsed] timeout:seconds + 1.0];
 }
 
+- (UIWindowScene *)waitForForegroundActiveWindowScene {
+    UIApplication *application = UIApplication.sharedApplication;
+    NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
+    __block NSUInteger evaluations = 0;
+    __block UIWindowScene *activeScene = nil;
+    void (^recordState)(NSString *, XCTWaiterResult, BOOL) = ^(NSString *phase, XCTWaiterResult result, BOOL finished) {
+        NSMutableArray<NSString *> *scenes = [NSMutableArray array];
+        for (UIScene *scene in application.connectedScenes) {
+            NSString *windows = [scene isKindOfClass:UIWindowScene.class]
+                ? [NSString stringWithFormat:@"%lu", (unsigned long)((UIWindowScene *)scene).windows.count]
+                : @"not-a-window-scene";
+            [scenes addObject:[NSString stringWithFormat:@"class=%@ session=%@ activationState=%ld windowCount=%@",
+                NSStringFromClass(scene.class), scene.session.persistentIdentifier,
+                (long)scene.activationState, windows]];
+        }
+        [scenes sortUsingSelector:@selector(compare:)];
+        NSString *waiter = finished ? [NSString stringWithFormat:@"%ld", (long)result] : @"pending";
+        NSString *diagnostic = [NSString stringWithFormat:
+            @"phase=%@ applicationState=%ld monotonicElapsed=%.6f predicateEvaluations=%lu waiterResult=%@\nconnectedScenes=%lu\n%@",
+            phase, (long)application.applicationState, NSProcessInfo.processInfo.systemUptime - started,
+            (unsigned long)evaluations, waiter, (unsigned long)scenes.count,
+            [scenes componentsJoinedByString:@"\n"]];
+        NSLog(@"[SceneReadiness] %@", diagnostic);
+        XCTAttachment *attachment = [XCTAttachment attachmentWithString:diagnostic];
+        attachment.name = [NSString stringWithFormat:@"%@ scene readiness %@", self.name, phase];
+        attachment.lifetime = XCTAttachmentLifetimeKeepAlways;
+        [self addAttachment:attachment];
+    };
+    recordState(@"initial", (XCTWaiterResult)0, NO);
+    NSPredicate *ready = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        evaluations++;
+        activeScene = nil;
+        for (UIScene *scene in application.connectedScenes) {
+            if ([scene isKindOfClass:UIWindowScene.class] &&
+                scene.activationState == UISceneActivationStateForegroundActive) {
+                activeScene = (UIWindowScene *)scene;
+                break;
+            }
+        }
+        return activeScene != nil;
+    }];
+    XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:ready object:application];
+    XCTWaiterResult result = [XCTWaiter waitForExpectations:@[expectation] timeout:10.0];
+    recordState(@"final", result, YES);
+    return result == XCTWaiterResultCompleted ? activeScene : nil;
+}
+
 - (BOOL)waitForView:(UIView *)view toAttachToWindow:(UIWindow *)window {
     [window layoutIfNeeded];
     NSPredicate *attachedPredicate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
@@ -1999,14 +2047,7 @@ static NSString *FSHFixtureSuiteName;
 }
 
 - (void)testSettingsSegmentsScaleAndFitAtAccessibilitySizes {
-    UIWindowScene *scene = nil;
-    for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
-        if ([candidate isKindOfClass:UIWindowScene.class] &&
-            candidate.activationState == UISceneActivationStateForegroundActive) {
-            scene = (UIWindowScene *)candidate;
-            break;
-        }
-    }
+    UIWindowScene *scene = [self waitForForegroundActiveWindowScene];
     XCTAssertNotNil(scene);
     if (!scene) { return; }
     UIWindow *oldKeyWindow = nil;
@@ -2052,14 +2093,7 @@ static NSString *FSHFixtureSuiteName;
 }
 
 - (void)testHostActionTitlesWrapInAttachedAccessibilityViewport {
-    UIWindowScene *scene = nil;
-    for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
-        if ([candidate isKindOfClass:UIWindowScene.class] &&
-            candidate.activationState == UISceneActivationStateForegroundActive) {
-            scene = (UIWindowScene *)candidate;
-            break;
-        }
-    }
+    UIWindowScene *scene = [self waitForForegroundActiveWindowScene];
     XCTAssertNotNil(scene);
     if (!scene) { return; }
     UIWindow *oldKeyWindow = nil;
@@ -2142,14 +2176,7 @@ static NSString *FSHFixtureSuiteName;
 }
 
 - (void)testAXCompactAlternateTypographySettlesAcrossRepeatedLayouts {
-    UIWindowScene *scene = nil;
-    for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
-        if ([candidate isKindOfClass:UIWindowScene.class] &&
-            candidate.activationState == UISceneActivationStateForegroundActive) {
-            scene = (UIWindowScene *)candidate;
-            break;
-        }
-    }
+    UIWindowScene *scene = [self waitForForegroundActiveWindowScene];
     XCTAssertNotNil(scene);
     if (!scene) { return; }
     UIWindow *oldKeyWindow = nil;
@@ -2205,14 +2232,7 @@ static NSString *FSHFixtureSuiteName;
 }
 
 - (void)testAttachedHostHeightAndDynamicTypeAdaptWithoutRebuildingComposition {
-    UIWindowScene *scene = nil;
-    for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
-        if ([candidate isKindOfClass:UIWindowScene.class] &&
-            candidate.activationState == UISceneActivationStateForegroundActive) {
-            scene = (UIWindowScene *)candidate;
-            break;
-        }
-    }
+    UIWindowScene *scene = [self waitForForegroundActiveWindowScene];
     XCTAssertNotNil(scene);
     if (!scene) { return; }
     UIWindow *oldKeyWindow = nil;
@@ -2890,13 +2910,7 @@ static NSString *FSHFixtureSuiteName;
 }
 
 - (void)testProductionKeyboardViewsRenderInAttachedHostWindow {
-    UIWindowScene *activeScene = nil;
-    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-        if ([scene isKindOfClass:[UIWindowScene class]] && scene.activationState == UISceneActivationStateForegroundActive) {
-            activeScene = (UIWindowScene *)scene;
-            break;
-        }
-    }
+    UIWindowScene *activeScene = [self waitForForegroundActiveWindowScene];
     XCTAssertNotNil(activeScene);
     if (!activeScene) {
         return;
@@ -3743,13 +3757,7 @@ static NSString *FSHFixtureSuiteName;
 - (void)testHostCodeSearchRendersInAttachedWindow {
     CodeSearchViewController *search = [[CodeSearchViewController alloc] init];
     UINavigationController *navigation = [[UINavigationController alloc] initWithRootViewController:search];
-    UIWindowScene *activeScene = nil;
-    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-        if ([scene isKindOfClass:[UIWindowScene class]] && scene.activationState == UISceneActivationStateForegroundActive) {
-            activeScene = (UIWindowScene *)scene;
-            break;
-        }
-    }
+    UIWindowScene *activeScene = [self waitForForegroundActiveWindowScene];
     XCTAssertNotNil(activeScene);
     if (!activeScene) {
         return;
@@ -3930,13 +3938,7 @@ static NSString *FSHFixtureSuiteName;
 - (void)testHostPanelScrollsFocusedFieldsAboveSceneBackedKeyboard {
     ViewController *panel = [[ViewController alloc] init];
     UINavigationController *navigation = [[UINavigationController alloc] initWithRootViewController:panel];
-    UIWindowScene *activeScene = nil;
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if ([scene isKindOfClass:UIWindowScene.class] && scene.activationState == UISceneActivationStateForegroundActive) {
-            activeScene = (UIWindowScene *)scene;
-            break;
-        }
-    }
+    UIWindowScene *activeScene = [self waitForForegroundActiveWindowScene];
     XCTAssertNotNil(activeScene);
     if (!activeScene) return;
     UIWindow *oldKeyWindow = nil;

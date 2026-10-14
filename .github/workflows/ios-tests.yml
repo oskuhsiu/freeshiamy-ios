@@ -14,18 +14,24 @@ jobs:
   simulator:
     runs-on: macos-15
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        height_endpoint: [90, 220]
+    env:
+      FSH_HEIGHT_ENDPOINT: ${{ matrix.height_endpoint }}
     steps:
       - uses: actions/checkout@v4
       - name: Build and run XCTest
         timeout-minutes: 25
         run: bash ci/test-ios.sh
       - name: Benchmark native Foundation lookup
-        if: always()
+        if: ${{ always() && matrix.height_endpoint == 90 }}
         env:
           DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
         run: bash Benchmarks/run-lookup-benchmark.sh
       - name: Save lookup benchmark
-        if: always()
+        if: ${{ always() && matrix.height_endpoint == 90 }}
         uses: actions/upload-artifact@v4
         with:
           name: lookup-benchmark-${{ github.run_id }}-${{ github.run_attempt }}
@@ -36,7 +42,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-simulator-iphone-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ios-simulator-iphone-height-${{ matrix.height_endpoint }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ci-artifacts/
           if-no-files-found: warn
           retention-days: 14
@@ -44,7 +50,12 @@ jobs:
   ipad:
     runs-on: macos-15
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        height_endpoint: [90, 220]
     env:
+      FSH_HEIGHT_ENDPOINT: ${{ matrix.height_endpoint }}
       FSH_SIM_DEVICE_TYPE: com.apple.CoreSimulator.SimDeviceType.iPad-Air-11-inch-M3
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +66,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-simulator-ipad-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ios-simulator-ipad-height-${{ matrix.height_endpoint }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ci-artifacts/
           if-no-files-found: warn
           retention-days: 14

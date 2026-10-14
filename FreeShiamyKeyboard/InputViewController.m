@@ -71,6 +71,11 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 @property (nonatomic, assign) BOOL lastLoggedExpanded;
 @property (nonatomic, assign) BOOL lastLoggedCompact;
 @property (nonatomic, copy) NSString *lastLoggedContentSizeCategory;
+@property (nonatomic, assign) UIUserInterfaceStyle lastLoggedInterfaceStyle;
+@property (nonatomic, assign) CGFloat lastLoggedBarDesired;
+@property (nonatomic, assign) CGFloat lastLoggedExpandedDesired;
+@property (nonatomic, assign) CGFloat lastLoggedSafeTop;
+@property (nonatomic, assign) CGFloat lastLoggedSafeBottom;
 #endif
 
 @end
@@ -156,8 +161,9 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
 #if DEBUG
-    NSLog(@"FreeShiamyKeyboard lifecycle bundle=%@ pid=%d hasFullAccess=%@",
-          NSBundle.mainBundle.bundleIdentifier, getpid(), self.hasFullAccess ? @"YES" : @"NO");
+    NSLog(@"FreeShiamyKeyboard lifecycle bundle=%@ pid=%d hasFullAccess=%@ epoch=%.6f",
+          NSBundle.mainBundle.bundleIdentifier, getpid(), self.hasFullAccess ? @"YES" : @"NO",
+          [NSDate date].timeIntervalSince1970);
 #endif
     [self updatePreferredContentSize];
 }
@@ -189,6 +195,13 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     CGFloat preferredHeight = self.preferredContentSize.height;
     NSInteger percent = [FSHSettings keyboardHeightPercent];
     NSString *category = self.traitCollection.preferredContentSizeCategory ?: @"unspecified";
+    UIUserInterfaceStyle interfaceStyle = self.traitCollection.userInterfaceStyle;
+    NSString *style = interfaceStyle == UIUserInterfaceStyleLight ? @"light" :
+        (interfaceStyle == UIUserInterfaceStyleDark ? @"dark" : @"unspecified");
+    CGFloat barDesired = self.candidateBar.barHeight;
+    CGFloat expandedDesired = self.candidateBar.expandedHeight;
+    CGFloat safeTop = window.safeAreaInsets.top;
+    CGFloat safeBottom = window.safeAreaInsets.bottom;
     BOOL changed = !self.hasLoggedLayoutMetrics ||
         fabs(rootSize.width - self.lastLoggedRootSize.width) > 0.5 ||
         fabs(rootSize.height - self.lastLoggedRootSize.height) > 0.5 ||
@@ -200,6 +213,11 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
         percent != self.lastLoggedHeightPercent ||
         self.candidateBar.isExpanded != self.lastLoggedExpanded ||
         self.compactCandidateSelection != self.lastLoggedCompact ||
+        interfaceStyle != self.lastLoggedInterfaceStyle ||
+        fabs(barDesired - self.lastLoggedBarDesired) > 0.5 ||
+        fabs(expandedDesired - self.lastLoggedExpandedDesired) > 0.5 ||
+        fabs(safeTop - self.lastLoggedSafeTop) > 0.5 ||
+        fabs(safeBottom - self.lastLoggedSafeBottom) > 0.5 ||
         ![category isEqualToString:self.lastLoggedContentSizeCategory];
     if (!changed) { return; }
     self.hasLoggedLayoutMetrics = YES;
@@ -211,10 +229,16 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     self.lastLoggedExpanded = self.candidateBar.isExpanded;
     self.lastLoggedCompact = self.compactCandidateSelection;
     self.lastLoggedContentSizeCategory = category;
-    NSLog(@"[AdaptiveKeyboard] root=%.1fx%.1f window=%.1fx%.1f scene=%.1fx%.1f requested=%.1f percent=%ld category=%@ expanded=%d compact=%d",
+    self.lastLoggedInterfaceStyle = interfaceStyle;
+    self.lastLoggedBarDesired = barDesired;
+    self.lastLoggedExpandedDesired = expandedDesired;
+    self.lastLoggedSafeTop = safeTop;
+    self.lastLoggedSafeBottom = safeBottom;
+    NSLog(@"[AdaptiveKeyboard] root=%.1fx%.1f window=%.1fx%.1f scene=%.1fx%.1f requested=%.1f percent=%ld category=%@ expanded=%d compact=%d style=%@ epoch=%.6f barDesired=%.1f expandedDesired=%.1f safeTop=%.1f safeBottom=%.1f",
           rootSize.width, rootSize.height, windowSize.width, windowSize.height,
           sceneSize.width, sceneSize.height, preferredHeight, (long)percent,
-          category, self.candidateBar.isExpanded, self.compactCandidateSelection);
+          category, self.candidateBar.isExpanded, self.compactCandidateSelection, style,
+          [NSDate date].timeIntervalSince1970, barDesired, expandedDesired, safeTop, safeBottom);
 }
 #endif
 

@@ -699,4 +699,311 @@
     [self capture:@"AX installed More test complete" application:host];
 }
 
+- (XCUIElement *)requireVisibleUnique:(XCUIElementQuery *)query
+                                stage:(NSString *)stage
+                          application:(XCUIApplication *)application {
+    XCUIElement *element = query.firstMatch;
+    NSPredicate *ready = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return query.count == 1 && [self isOnScreen:element application:application] && element.isHittable;
+    }];
+    XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:ready object:element];
+    if ([XCTWaiter waitForExpectations:@[expectation] timeout:15.0] != XCTWaiterResultCompleted) {
+        [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:application];
+        XCTFail(@"%@: expected one on-screen, hittable control; found %lu", stage, (unsigned long)query.count);
+        return nil;
+    }
+    [self capture:stage application:application];
+    return element;
+}
+
+- (XCUIElement *)hostControlByScrolling:(XCUIElementQuery *)query
+                                  stage:(NSString *)stage
+                            application:(XCUIApplication *)host {
+    XCUIElement *element = query.firstMatch;
+    if (![element waitForExistenceWithTimeout:5.0] || query.count != 1) {
+        [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:host];
+        XCTFail(@"%@: expected one observed host control before scrolling; found %lu", stage, (unsigned long)query.count);
+        return nil;
+    }
+    XCUIElementQuery *scrolls = [host.scrollViews matchingIdentifier:@"host.testPanel.scroll"];
+    XCUIElement *scroll = scrolls.firstMatch;
+    for (NSUInteger swipe = 0; swipe <= 8; swipe++) {
+        CGRect item = element.frame;
+        CGRect viewport = scroll.frame;
+        if (query.count != 1 || scrolls.count != 1 || CGRectIsEmpty(item) || CGRectIsEmpty(viewport)) break;
+        if (CGRectContainsRect(viewport, item) && [self isOnScreen:element application:host] && element.isHittable) {
+            [self capture:stage application:host];
+            return element;
+        }
+        if (swipe == 8 || ![self isOnScreen:scroll application:host] || !scroll.isHittable) break;
+        if (CGRectGetMinY(item) < CGRectGetMinY(viewport)) {
+            [scroll swipeDown];
+        } else if (CGRectGetMaxY(item) > CGRectGetMaxY(viewport)) {
+            [scroll swipeUp];
+        } else {
+            break;
+        }
+    }
+    [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:host];
+    XCTFail(@"%@: host control did not become fully visible after bounded observed-frame host-panel scrolling", stage);
+    return nil;
+}
+
+- (BOOL)requireHeightComposition:(XCUIApplication *)host stage:(NSString *)stage {
+    XCUIElement *raw = [self requireVisibleUnique:[host.buttons matchingIdentifier:@"candidate.raw"]
+                                           stage:stage application:host];
+    if (!raw) return NO;
+    if (![raw.label isEqualToString:@"c"]) {
+        [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:host];
+        XCTFail(@"%@: expected raw c, observed %@", stage, raw.label);
+        return NO;
+    }
+    return YES;
+}
+
+- (BOOL)verifyHeightMoreOrientation:(UIDeviceOrientation)orientation
+                           landscape:(BOOL)landscape
+                               field:(XCUIElement *)field
+                         application:(XCUIApplication *)host
+                               stage:(NSString *)stage {
+    [XCUIDevice sharedDevice].orientation = orientation;
+    XCUIElementQuery *raws = [host.buttons matchingIdentifier:@"candidate.raw"];
+    XCUIElementQuery *mores = [host.buttons matchingIdentifier:@"candidate.more"];
+    XCUIElementQuery *lists = [host.scrollViews matchingIdentifier:@"candidate.expandedList"];
+    XCUIElement *raw = raws.firstMatch;
+    XCUIElement *more = mores.firstMatch;
+    XCUIElement *list = lists.firstMatch;
+    NSPredicate *ready = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        CGRect scene = host.frame;
+        BOOL rotated = landscape ? CGRectGetWidth(scene) > CGRectGetHeight(scene) + 20.0
+                                 : CGRectGetHeight(scene) > CGRectGetWidth(scene) + 20.0;
+        return rotated && raws.count == 1 && [raw.label isEqualToString:@"c"] &&
+               [self isOnScreen:raw application:host] && raw.isHittable &&
+               mores.count == 1 && [more.value isEqual:@"已展開"] &&
+               [self isOnScreen:more application:host] && more.isHittable &&
+               lists.count == 1 && [self isOnScreen:list application:host] && list.isHittable &&
+               [self isOnScreen:field application:host] && field.isHittable;
+    }];
+    XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:ready object:host];
+    if ([XCTWaiter waitForExpectations:@[expectation] timeout:15.0] != XCTWaiterResultCompleted) {
+        [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:host];
+        XCTFail(@"%@: missing actual orientation, preserved raw c, expanded More viewport or focused multiline field", stage);
+        return NO;
+    }
+    [self capture:stage application:host];
+    return YES;
+}
+
+- (BOOL)requireHeightCollapsedKeys:(XCUIApplication *)host
+                   withComposition:(BOOL)withComposition
+                             stage:(NSString *)stage {
+    XCUIElementQuery *keys = [host.buttons matchingIdentifier:@"key.letter.c"];
+    XCUIElementQuery *lists = [host.scrollViews matchingIdentifier:@"candidate.expandedList"];
+    XCUIElementQuery *mores = [host.buttons matchingIdentifier:@"candidate.more"];
+    XCUIElementQuery *raws = [host.buttons matchingIdentifier:@"candidate.raw"];
+    XCUIElement *key = keys.firstMatch;
+    NSPredicate *ready = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        BOOL collapsed = lists.count == 0 && mores.count <= 1 &&
+            (mores.count == 0 || [mores.firstMatch.value isEqual:@"已收合"]);
+        if (withComposition) {
+            collapsed = collapsed && mores.count == 1 &&
+                [self isOnScreen:mores.firstMatch application:host] && mores.firstMatch.isHittable &&
+                raws.count == 1 && [raws.firstMatch.label isEqualToString:@"c"] &&
+                [self isOnScreen:raws.firstMatch application:host] && raws.firstMatch.isHittable;
+        }
+        return collapsed && keys.count == 1 && [self isOnScreen:key application:host] && key.isHittable;
+    }];
+    XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:ready object:host];
+    if ([XCTWaiter waitForExpectations:@[expectation] timeout:15.0] != XCTWaiterResultCompleted) {
+        [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:host];
+        XCTFail(@"%@: expected restored visible letter keys, collapsed More and required composition", stage);
+        return NO;
+    }
+    [self capture:stage application:host];
+    return YES;
+}
+
+- (void)runInstalledHeightScenario:(NSInteger)percent normalizedPosition:(CGFloat)position {
+    NSString *prefix = [NSString stringWithFormat:@"Height %ld%%", (long)percent];
+    [XCUIDevice sharedDevice].orientation = UIDeviceOrientationPortrait;
+    XCUIApplication *host = [[XCUIApplication alloc] initWithBundleIdentifier:@"osku.me.freeshiamyios"];
+    NSString *runID = [NSUUID UUID].UUIDString;
+    host.launchEnvironment = @{@"FSH_INSTALLED_SMOKE_RUN_ID": runID};
+    [host launch];
+    XCTAttachment *runMarker = [XCTAttachment attachmentWithString:runID];
+    runMarker.name = @"Installed smoke host-geometry run ID";
+    runMarker.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:runMarker];
+    [self capture:[prefix stringByAppendingString:@" host launched"] application:host];
+
+    XCUIElement *settingsButton = [self hostControlByScrolling:[host.buttons matchingIdentifier:@"smoke.appSettings"]
+        stage:[prefix stringByAppendingString:@" actual app Settings action"] application:host];
+    if (!settingsButton) return;
+    [settingsButton tap];
+    XCUIElement *settingsBar = [self requireVisibleUnique:[host.navigationBars matchingIdentifier:@"設定"]
+        stage:[prefix stringByAppendingString:@" Settings navigation bar"] application:host];
+    XCUIElement *slider = [self requireVisibleUnique:[host.sliders matchingIdentifier:@"settings.height.slider"]
+        stage:[prefix stringByAppendingString:@" Settings height slider"] application:host];
+    XCUIElement *value = [self requireVisibleUnique:[host.staticTexts matchingIdentifier:@"settings.height.value"]
+        stage:[prefix stringByAppendingString:@" Settings height value"] application:host];
+    if (!settingsBar || !slider || !value) return;
+    [slider adjustToNormalizedSliderPosition:position];
+    NSString *expectedLabel = [NSString stringWithFormat:@"%ld%%", (long)percent];
+    NSPredicate *chosen = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return [value.label isEqualToString:expectedLabel] && [self isOnScreen:value application:host] && value.isHittable;
+    }];
+    XCTNSPredicateExpectation *chosenExpectation = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:chosen object:value];
+    if ([XCTWaiter waitForExpectations:@[chosenExpectation] timeout:10.0] != XCTWaiterResultCompleted) {
+        [self capture:[prefix stringByAppendingString:@" slider value — first boundary failure"] application:host];
+        XCTFail(@"Expected actual Settings slider label %@, observed %@", expectedLabel, value.label);
+        return;
+    }
+    [self capture:[prefix stringByAppendingString:@" chosen through Settings slider"] application:host];
+    XCUIElement *back = [self requireVisibleUnique:settingsBar.buttons
+        stage:[prefix stringByAppendingString:@" unique Settings back action"] application:host];
+    if (!back) return;
+    [self capture:[NSString stringWithFormat:@"%@ Settings back label: %@", prefix, back.label] application:host];
+    [back tap];
+    [self capture:[prefix stringByAppendingString:@" returned from Settings"] application:host];
+
+    XCUIElement *multi = [self hostControlByScrolling:[host.textViews matchingIdentifier:@"smoke.multiLine"]
+        stage:[prefix stringByAppendingString:@" multiline field before focus"] application:host];
+    if (!multi) return;
+    if (![self expectValue:@"" of:multi stage:[prefix stringByAppendingString:@" initial multiline empty"] application:host]) return;
+    [multi tap];
+    [self capture:[prefix stringByAppendingString:@" multiline focused"] application:host];
+    XCUIElement *letter = [host.buttons matchingIdentifier:@"key.letter.c"].firstMatch;
+    if (![letter waitForExistenceWithTimeout:5.0]) {
+        XCUIElementQuery *switchers = [host.buttons matchingPredicate:
+            [NSPredicate predicateWithFormat:@"label == %@ OR label == %@", @"Next keyboard", @"Globe"]];
+        XCUIElement *switcher = [self requireVisibleUnique:switchers
+            stage:[prefix stringByAppendingString:@" observed system switcher"] application:host];
+        if (!switcher) return;
+        [switcher pressForDuration:1.2];
+        [self capture:[prefix stringByAppendingString:@" real input-mode picker"] application:host];
+        XCUIElement *choice = [self observedInputSwitcherCell:@"FreeShiamy — freeshiamy-ios, Chinese"
+            stage:[prefix stringByAppendingString:@" FreeShiamy picker choice"] application:host];
+        if (!choice) return;
+        [choice tap];
+    }
+    if (![self requireVisibleUnique:[host.buttons matchingIdentifier:@"key.letter.c"]
+        stage:[prefix stringByAppendingString:@" installed letter key"] application:host]) return;
+    XCUIElement *dictionaryStatus = [host.staticTexts matchingIdentifier:@"candidate.status"].firstMatch;
+    XCTNSPredicateExpectation *loaded = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:[NSPredicate predicateWithFormat:@"exists == NO"] object:dictionaryStatus];
+    if ([XCTWaiter waitForExpectations:@[loaded] timeout:30.0] != XCTWaiterResultCompleted) {
+        [self capture:[prefix stringByAppendingString:@" dictionary — first boundary failure"] application:host];
+        XCTFail(@"Dictionary did not become ready in installed height scenario");
+        return;
+    }
+    if (![self verifyInstalledOrientation:UIDeviceOrientationPortrait landscape:NO field:multi
+        application:host stage:[prefix stringByAppendingString:@" portrait collapsed before composition"]]) return;
+    if (![self tapKeyboardControl:@"key.digit.1" application:host]) return;
+    if (![self expectValue:@"1" of:multi stage:[prefix stringByAppendingString:@" digit inserted"] application:host]) return;
+    if (![self tapKeyboardControl:@"key.letter.c" application:host]) return;
+    if (![self requireHeightComposition:host stage:[prefix stringByAppendingString:@" initial raw c"]]) return;
+    XCUIElement *more = [self requireVisibleUnique:[host.buttons matchingIdentifier:@"candidate.more"]
+        stage:[prefix stringByAppendingString:@" collapsed More before opening"] application:host];
+    if (!more) return;
+    if (![more.value isEqual:@"已收合"]) {
+        [self capture:[prefix stringByAppendingString:@" initial More state — first boundary failure"] application:host];
+        XCTFail(@"Expected collapsed More, observed %@", more.value);
+        return;
+    }
+    [more tap];
+    if (![self verifyHeightMoreOrientation:UIDeviceOrientationPortrait landscape:NO field:multi
+        application:host stage:@"Height expanded portrait before rotation"]) return;
+    if (![self verifyHeightMoreOrientation:UIDeviceOrientationLandscapeLeft landscape:YES field:multi
+        application:host stage:@"Height expanded landscape"]) return;
+    if (![self expectValue:@"1" of:multi stage:[prefix stringByAppendingString:@" landscape preserves multiline"] application:host]) return;
+    if (![self requireHeightComposition:host stage:[prefix stringByAppendingString:@" landscape raw c preserved"]]) return;
+
+    XCUIElement *list = [self requireVisibleUnique:[host.scrollViews matchingIdentifier:@"candidate.expandedList"]
+        stage:[prefix stringByAppendingString:@" landscape More viewport before scrolling"] application:host];
+    if (!list) return;
+    XCUIElementQuery *targets = [host.buttons matchingIdentifier:@"candidate.expanded.79"];
+    XCUIElement *target = targets.firstMatch;
+    BOOL initiallyVisible = targets.count == 1 && !CGRectIsEmpty(target.frame) &&
+        CGRectContainsRect(list.frame, target.frame) && CGRectContainsRect(host.frame, target.frame) && target.isHittable;
+    [self capture:[prefix stringByAppendingString:initiallyVisible
+        ? @" candidate 79 initially fully visible" : @" candidate 79 not initially fully visible"] application:host];
+    BOOL reached = NO;
+    for (NSUInteger swipe = 0; swipe <= 16; swipe++) {
+        CGRect viewport = list.frame;
+        NSUInteger count = targets.count;
+        if (count > 1) break;
+        if (count == 1) {
+            CGRect item = target.frame;
+            if (![target.label isEqualToString:@"蟻"]) break;
+            if (!CGRectIsEmpty(viewport) && !CGRectIsEmpty(item) &&
+                CGRectContainsRect(viewport, item) && CGRectContainsRect(host.frame, item) && target.isHittable) {
+                reached = YES;
+                break;
+            }
+            if (swipe == 16 || ![self isOnScreen:list application:host] || !list.isHittable) break;
+            if (!CGRectIsEmpty(item) && CGRectGetMinY(item) < CGRectGetMinY(viewport)) {
+                [list swipeDown];
+                continue;
+            }
+        }
+        if (swipe == 16 || ![self isOnScreen:list application:host] || !list.isHittable) break;
+        [list swipeUp];
+    }
+    if (!reached) {
+        [self capture:[prefix stringByAppendingString:@" candidate scroll — first boundary failure"] application:host];
+        XCTFail(@"Expected unique candidate 79 蟻 fully contained and hittable after at most 16 More-viewport swipes");
+        return;
+    }
+    [self capture:[prefix stringByAppendingString:@" candidate 79 visible before commit"] application:host];
+    [target tap];
+    if (![self expectValue:@"1蟻" of:multi stage:[prefix stringByAppendingString:@" landscape candidate committed"] application:host]) return;
+    if (![self requireHeightCollapsedKeys:host withComposition:NO
+        stage:[prefix stringByAppendingString:@" landscape collapsed keys restored"]]) return;
+    if (![self tapKeyboardControl:@"key.letter.c" application:host]) return;
+    if (![self requireHeightCollapsedKeys:host withComposition:YES
+        stage:[prefix stringByAppendingString:@" landscape collapsed raw c before reopening"]]) return;
+    more = [self requireVisibleUnique:[host.buttons matchingIdentifier:@"candidate.more"]
+        stage:[prefix stringByAppendingString:@" landscape More reopen control"] application:host];
+    if (!more) return;
+    [more tap];
+    if (![self verifyHeightMoreOrientation:UIDeviceOrientationLandscapeLeft landscape:YES field:multi
+        application:host stage:[prefix stringByAppendingString:@" landscape expanded again"]]) return;
+    if (![self verifyHeightMoreOrientation:UIDeviceOrientationPortrait landscape:NO field:multi
+        application:host stage:@"Height expanded portrait after rotation"]) return;
+    if (![self expectValue:@"1蟻" of:multi stage:[prefix stringByAppendingString:@" portrait preserves multiline"] application:host]) return;
+    more = [self requireVisibleUnique:[host.buttons matchingIdentifier:@"candidate.more"]
+        stage:[prefix stringByAppendingString:@" portrait More collapse control"] application:host];
+    if (!more) return;
+    [more tap];
+    if (![self requireHeightCollapsedKeys:host withComposition:YES
+        stage:[prefix stringByAppendingString:@" portrait collapsed composition preserved"]]) return;
+    XCUIElement *first = [self requireVisibleUnique:[host.buttons matchingIdentifier:@"candidate.inline.0"]
+        stage:[prefix stringByAppendingString:@" inline first candidate"] application:host];
+    if (!first) return;
+    if (![first.label isEqualToString:@"七"]) {
+        [self capture:[prefix stringByAppendingString:@" inline candidate — first boundary failure"] application:host];
+        XCTFail(@"Expected inline 七, observed %@", first.label);
+        return;
+    }
+    [first tap];
+    if (![self expectValue:@"1蟻七" of:multi stage:[prefix stringByAppendingString:@" inline candidate committed"] application:host]) return;
+    if (![self tapKeyboardControl:@"key.delete" application:host]) return;
+    if (![self expectValue:@"1蟻" of:multi stage:[prefix stringByAppendingString:@" Delete after More"] application:host]) return;
+    if (![self tapKeyboardControl:@"key.return" application:host]) return;
+    if (![self expectValue:@"1蟻\n" of:multi stage:[prefix stringByAppendingString:@" multiline Return after More"] application:host]) return;
+    [self capture:[prefix stringByAppendingString:@" installed scenario complete"] application:host];
+}
+
+- (void)testInstalledHeight90ExtraSmallLight {
+    [self runInstalledHeightScenario:90 normalizedPosition:0.0];
+}
+
+- (void)testInstalledHeight220AccessibilityDark {
+    [self runInstalledHeightScenario:220 normalizedPosition:1.0];
+}
+
 @end

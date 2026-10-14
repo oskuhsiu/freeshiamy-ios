@@ -31,6 +31,7 @@
     [FSHSettings registerDefaults];
 
     UIScrollView *scrollView = [[UIScrollView alloc] init];
+    scrollView.accessibilityIdentifier = @"settings.scroll";
     scrollView.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:scrollView];
 
@@ -46,10 +47,13 @@
     [stack addArrangedSubview:heightLabel];
 
     self.heightValueLabel = [[UILabel alloc] init];
+    self.heightValueLabel.accessibilityIdentifier = @"settings.height.value";
     [self styleValueLabel:self.heightValueLabel];
     [stack addArrangedSubview:self.heightValueLabel];
 
     self.heightSlider = [[UISlider alloc] init];
+    self.heightSlider.accessibilityIdentifier = @"settings.height.slider";
+    self.heightSlider.accessibilityLabel = @"鍵盤高度";
     self.heightSlider.minimumValue = 90;
     self.heightSlider.maximumValue = 220;
     [self.heightSlider addTarget:self action:@selector(heightChanged:) forControlEvents:UIControlEventValueChanged];

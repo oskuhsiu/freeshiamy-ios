@@ -160,7 +160,8 @@
                           NSStringFromCGRect(guide), NSStringFromCGRect(caret), responder];
     if ([geometry isEqualToString:self.lastLoggedHostGeometry]) return;
     self.lastLoggedHostGeometry = geometry;
-    NSLog(@"[HostGeometry] run=%@ pid=%d %@", runID, getpid(), geometry);
+    NSLog(@"[HostGeometry] run=%@ pid=%d epoch=%.6f %@", runID, getpid(),
+          [NSDate date].timeIntervalSince1970, geometry);
 }
 #endif
 

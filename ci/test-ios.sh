@@ -5,6 +5,17 @@ export DEVELOPER_DIR=/Applications/Xcode_26.2.app/Contents/Developer
 ARTIFACTS="${GITHUB_WORKSPACE:-$PWD}/ci-artifacts"
 TEMP_ROOT="${RUNNER_TEMP:-/tmp}"
 mkdir -p "$ARTIFACTS"
+case "${FSH_HEIGHT_ENDPOINT:-}" in
+    90|220) HEIGHT_ENDPOINT="$FSH_HEIGHT_ENDPOINT" ;;
+    *)
+        echo "Missing or invalid FSH_HEIGHT_ENDPOINT: '${FSH_HEIGHT_ENDPOINT:-missing}'; expected 90 or 220" \
+            | tee "$ARTIFACTS/height-endpoint-selection.log"
+        exit 1
+        ;;
+esac
+if [[ "$HEIGHT_ENDPOINT" == 90 ]]; then UNSELECTED_HEIGHT_ENDPOINT=220; else UNSELECTED_HEIGHT_ENDPOINT=90; fi
+printf 'Selected height endpoint: %s%%\nUnselected endpoint: %s%% not-run/pending in this matrix job\n' \
+    "$HEIGHT_ENDPOINT" "$UNSELECTED_HEIGHT_ENDPOINT" | tee "$ARTIFACTS/height-endpoint-selection.log"
 echo "[stage] preflight"
 
 if [[ ! -d "$DEVELOPER_DIR" ]]; then
@@ -27,6 +38,8 @@ if [[ "$(uname -m)" != "arm64" ]]; then
 fi
 python3 ci/test-installed-geometry-parser.py > "$ARTIFACTS/geometry-parser-selftest.log" 2>&1
 python3 ci/check-installed-ax-process.py --self-test > "$ARTIFACTS/installed-ax-parser-selftest.log" 2>&1
+python3 ci/check-installed-height-process.py --self-test > "$ARTIFACTS/installed-height-parser-selftest.log" 2>&1
+python3 ci/check-installed-height-milestones.py --self-test > "$ARTIFACTS/installed-height-milestone-selftest.log" 2>&1
 
 # The repository intentionally does not track a developer's signing overrides.
 touch Config/Local.xcconfig
@@ -86,9 +99,9 @@ else:
     sys.exit("iOS 26.2 simulator runtime is unavailable")
 ')
 
-DEVICE_ID=$(xcrun simctl create "freeshiamy-ci-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${DEVICE_LABEL}" \
+DEVICE_ID=$(xcrun simctl create "freeshiamy-ci-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${DEVICE_LABEL}-height-${HEIGHT_ENDPOINT}" \
     "$DEVICE_TYPE" "$RUNTIME")
-echo "Job-owned simulator: $DEVICE_ID; type: $DEVICE_TYPE; runtime: $RUNTIME" | tee -a "$ARTIFACTS/device-selection.log"
+echo "Job-owned simulator: $DEVICE_ID; type: $DEVICE_TYPE; runtime: $RUNTIME; selected height endpoint: ${HEIGHT_ENDPOINT}%" | tee -a "$ARTIFACTS/device-selection.log"
 cleanup() {
     xcrun simctl shutdown "$DEVICE_ID" >/dev/null 2>&1 || true
     xcrun simctl delete "$DEVICE_ID" >/dev/null 2>&1 || true
@@ -344,10 +357,131 @@ else
     echo '[stage] Installed AX/More test skipped because default installed smoke or evidence failed' \
         | tee "$ARTIFACTS/installed-ax-skipped.log"
 fi
+
+# Each height stage changes only public simulator traits. The real app Settings
+# slider chooses the saved percentage, and extension process evidence verifies it.
+collect_height_service_log() {
+    local label="$1" predicate="$2" start_file="$3" status=0 records
+    xcrun simctl spawn "$DEVICE_ID" log show \
+        --start "$(cat "$start_file")" \
+        --style compact --info --debug --predicate "$predicate" \
+        > "$ARTIFACTS/$label.log" 2>&1 || status=$?
+    records=$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}' "$ARTIFACTS/$label.log" || true)
+    printf '\ndiagnostic_command_status=%s matching_event_records=%s\n' "$status" "$records" \
+        >> "$ARTIFACTS/$label.log"
+    if [[ "$status" != 0 ]]; then
+        printf '\ndiagnostic_missing=%s public log show status=%s\n' "$label" "$status" \
+            >> "$ARTIFACTS/$label.log"
+    elif [[ "$records" == 0 ]]; then
+        printf '\ndiagnostic_missing=%s no matching event records\n' "$label" \
+            >> "$ARTIFACTS/$label.log"
+    fi
+}
+
+run_height_stage() {
+    local label="$1" test_name="$2" percent="$3" category="$4" content_size="$5" appearance="$6" prefix="$7"
+    local content_result=0 appearance_result=0 ui_stage_result=skipped process_stage_result=skipped
+    local geometry_stage_result=skipped milestone_stage_result=skipped
+    echo "[stage] $label public simulator traits $content_size/$appearance" | tee "$ARTIFACTS/$label-traits.log"
+    if ! xcrun simctl ui "$DEVICE_ID" content_size "$content_size" \
+        >> "$ARTIFACTS/$label-traits.log" 2>&1; then content_result=1; fi
+    if ! xcrun simctl ui "$DEVICE_ID" content_size \
+        > "$ARTIFACTS/$label-content-size-readback.log" 2>&1; then content_result=1; fi
+    if ! grep -qx "$content_size" "$ARTIFACTS/$label-content-size-readback.log"; then content_result=1; fi
+    if ! xcrun simctl ui "$DEVICE_ID" appearance "$appearance" \
+        >> "$ARTIFACTS/$label-traits.log" 2>&1; then appearance_result=1; fi
+    if ! xcrun simctl ui "$DEVICE_ID" appearance \
+        > "$ARTIFACTS/$label-appearance-readback.log" 2>&1; then appearance_result=1; fi
+    if ! grep -qx "$appearance" "$ARTIFACTS/$label-appearance-readback.log"; then appearance_result=1; fi
+    if [[ "$content_result" == 0 && "$appearance_result" == 0 ]]; then
+        date -u +'%Y-%m-%d %H:%M:%S' > "$ARTIFACTS/$label-stage-start.txt"
+        record_app_identity "$label-before"
+        ui_stage_result=0
+        run_stage "$label" InstalledKeyboardSmoke 300 360 \
+            "-only-testing:InstalledKeyboardUITests/InstalledKeyboardUITests/$test_name" \
+            || ui_stage_result=$?
+        if [[ "$ui_stage_result" == 0 ]] && \
+           [[ "$(grep -Fc "Test Case '-[InstalledKeyboardUITests $test_name]' passed" "$ARTIFACTS/$label-xcodebuild.log" || true)" != 1 ]]; then
+            echo '[stage] Height installed scenario did not complete exactly one selected test' \
+                | tee "$ARTIFACTS/$label-selection.log"
+            ui_stage_result=1
+        fi
+        record_app_identity "$label-after"
+        if [[ "$ui_stage_result" != 0 ]]; then
+            # This stage's failure stays failed. The extra read-only timeline
+            # uses its own start file and never overwrites the AX start marker.
+            collect_height_service_log "$label-host-full-process" 'process == "freeshiamy-ios"' \
+                "$ARTIFACTS/$label-stage-start.txt"
+            collect_height_service_log "$label-service-launch" \
+                'subsystem CONTAINS[c] "PlugInKit" OR subsystem CONTAINS[c] "ExtensionKit" OR subsystem CONTAINS[c] "RunningBoard" OR subsystem CONTAINS[c] "LaunchServices" OR process == "pkd" OR process == "runningboardd" OR process == "lsd" OR process == "launchd" OR eventMessage CONTAINS "osku.me.freeshiamyios.keyboard"' \
+                "$ARTIFACTS/$label-stage-start.txt"
+            collect_height_service_log "$label-install-registration" \
+                'process == "installd" OR subsystem CONTAINS[c] "MobileInstallation" OR ((eventMessage CONTAINS "osku.me.freeshiamyios") AND (eventMessage CONTAINS[c] "install" OR eventMessage CONTAINS[c] "register" OR eventMessage CONTAINS[c] "registration"))' \
+                "$ARTIFACTS/$label-stage-start.txt"
+        fi
+        xcrun simctl spawn "$DEVICE_ID" log show \
+            --start "$(cat "$ARTIFACTS/$label-stage-start.txt")" --style compact --info --debug \
+            --predicate 'process == "FreeShiamyKeyboard"' \
+            > "$ARTIFACTS/$label-extension-process.log" 2>&1 || true
+        xcrun simctl spawn "$DEVICE_ID" log show \
+            --start "$(cat "$ARTIFACTS/$label-stage-start.txt")" --style compact --info --debug \
+            --predicate 'process == "freeshiamy-ios" AND eventMessage CONTAINS "[HostGeometry]"' \
+            > "$ARTIFACTS/$label-host-geometry.log" 2>&1 || true
+        process_stage_result=0
+        python3 ci/check-installed-height-process.py "$ARTIFACTS/$label-extension-process.log" \
+            "$percent" "$category" "$appearance" "$ARTIFACTS/$label-attachments" \
+            > "$ARTIFACTS/$label-process-check.log" 2>&1 || process_stage_result=$?
+        geometry_stage_result=0
+        python3 ci/check-installed-host-geometry.py "$ARTIFACTS/$label-host-geometry.log" \
+            "$ARTIFACTS/$label-attachments" \
+            > "$ARTIFACTS/$label-host-geometry-check.log" 2>&1 || geometry_stage_result=$?
+        milestone_stage_result=0
+        python3 ci/check-installed-height-milestones.py "$ARTIFACTS/$label-host-geometry.log" \
+            "$ARTIFACTS/$label-attachments" \
+            > "$ARTIFACTS/$label-milestones-check.log" 2>&1 || milestone_stage_result=$?
+    else
+        echo '[stage] Height installed scenario skipped because public trait readback failed' \
+            | tee "$ARTIFACTS/$label-skipped.log"
+    fi
+    printf -v "${prefix}_content_size_result" '%s' "$content_result"
+    printf -v "${prefix}_appearance_result" '%s' "$appearance_result"
+    printf -v "${prefix}_ui_result" '%s' "$ui_stage_result"
+    printf -v "${prefix}_process_result" '%s' "$process_stage_result"
+    printf -v "${prefix}_host_geometry_result" '%s' "$geometry_stage_result"
+    printf -v "${prefix}_milestone_result" '%s' "$milestone_stage_result"
+}
+
+selected_height_content_size_result=skipped
+selected_height_appearance_result=skipped
+selected_height_ui_result=skipped
+selected_height_process_result=skipped
+selected_height_host_geometry_result=skipped
+selected_height_milestone_result=skipped
+if [[ "$focused_result" == 0 && "$hosted_result" == 0 && "$plist_result" == 0 && \
+      "$ui_result" == 0 && "$host_geometry_result" == 0 && "$process_result" == 0 && \
+      "$ax_content_size_result" == 0 && "$ax_result" == 0 && "$ax_process_result" == 0 ]]; then
+    if [[ "$HEIGHT_ENDPOINT" == 90 ]]; then
+        run_height_stage installed-height-xs90 testInstalledHeight90ExtraSmallLight \
+            90 UICTContentSizeCategoryXS extra-small light selected_height
+    else
+        run_height_stage installed-height-ax220 testInstalledHeight220AccessibilityDark \
+            220 UICTContentSizeCategoryAccessibilityXXXL accessibility-extra-extra-extra-large dark selected_height
+    fi
+else
+    echo "[stage] Selected height ${HEIGHT_ENDPOINT}% skipped because baseline acceptance gates did not all succeed" \
+        | tee "$ARTIFACTS/installed-height-selected-skipped.log"
+fi
+
 # Missing unified-log evidence blocks a completed installed-extension claim for
 # this first run. Classify that as inconclusive integration evidence, not a
 # demonstrated keyboard product failure; retained UI evidence diagnoses it.
 printf 'hosted-focused=%s\nhosted-full=%s\nplist=%s\ninstalled-extension=%s\ninstalled-host-geometry=%s\nprocess-log=%s\ninstalled-ax-content-size=%s\ninstalled-ax=%s\ninstalled-ax-process=%s\n' \
     "$focused_result" "$hosted_result" "$plist_result" "$ui_result" "$host_geometry_result" "$process_observation" \
     "$ax_content_size_result" "$ax_result" "$ax_process_result" | tee "$ARTIFACTS/stage-status.txt"
-if [[ "$focused_result" != 0 || "$hosted_result" != 0 || "$plist_result" != 0 || "$ui_result" != 0 || "$host_geometry_result" != 0 || "$process_result" != 0 || "$ax_content_size_result" != 0 || "$ax_result" != 0 || "$ax_process_result" != 0 ]]; then exit 1; fi
+printf 'selected-height-endpoint=%s\nunselected-height-endpoint=%s\nunselected-height-status=not-run/pending\nselected-height-content-size=%s\nselected-height-appearance=%s\nselected-height-ui=%s\nselected-height-process=%s\nselected-height-host-geometry=%s\nselected-height-milestones=%s\n' \
+    "$HEIGHT_ENDPOINT" "$UNSELECTED_HEIGHT_ENDPOINT" \
+    "$selected_height_content_size_result" "$selected_height_appearance_result" "$selected_height_ui_result" \
+    "$selected_height_process_result" "$selected_height_host_geometry_result" "$selected_height_milestone_result" \
+    | tee -a "$ARTIFACTS/stage-status.txt"
+if [[ "$focused_result" != 0 || "$hosted_result" != 0 || "$plist_result" != 0 || "$ui_result" != 0 || "$host_geometry_result" != 0 || "$process_result" != 0 || "$ax_content_size_result" != 0 || "$ax_result" != 0 || "$ax_process_result" != 0 || \
+      "$selected_height_content_size_result" != 0 || "$selected_height_appearance_result" != 0 || "$selected_height_ui_result" != 0 || "$selected_height_process_result" != 0 || "$selected_height_host_geometry_result" != 0 || "$selected_height_milestone_result" != 0 ]]; then exit 1; fi
