@@ -95,8 +95,15 @@
     [stack addArrangedSubview:self.moreStepper];
 
     self.hintSwitch = [self addSwitchRowWithTitle:@"顯示字根提示" toStack:stack selector:@selector(hintChanged:)];
-    self.sensitiveSwitch = [self addSwitchRowWithTitle:@"敏感欄位停用輸入法" toStack:stack selector:@selector(sensitiveChanged:)];
-    self.noLearningSwitch = [self addSwitchRowWithTitle:@"將 No Personalized Learning 視為敏感" toStack:stack selector:@selector(noLearningChanged:)];
+    self.sensitiveSwitch = [self addSwitchRowWithTitle:@"安全輸入欄位停用輸入法" toStack:stack selector:@selector(sensitiveChanged:)];
+    self.noLearningSwitch = [self addSwitchRowWithTitle:@"包含密碼與一次性驗證碼欄位" toStack:stack selector:@selector(noLearningChanged:)];
+    UILabel *sensitiveExplanation = [[UILabel alloc] init];
+    sensitiveExplanation.text = @"啟用後會檢查安全輸入欄位；開啟「包含密碼與一次性驗證碼欄位」時，另會檢查 App 提供的密碼、新密碼及一次性驗證碼欄位類型。無法辨識所有敏感內容。";
+    sensitiveExplanation.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+    sensitiveExplanation.adjustsFontForContentSizeCategory = YES;
+    sensitiveExplanation.textColor = [UIColor secondaryLabelColor];
+    sensitiveExplanation.numberOfLines = 0;
+    [stack addArrangedSubview:sensitiveExplanation];
 
     [NSLayoutConstraint activateConstraints:@[
         [scrollView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
@@ -118,10 +125,15 @@
     UIView *container = [[UIView alloc] init];
     UILabel *label = [[UILabel alloc] init];
     label.text = title;
+    label.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    label.adjustsFontForContentSizeCategory = YES;
+    label.numberOfLines = 0;
     label.translatesAutoresizingMaskIntoConstraints = NO;
 
     UISwitch *toggle = [[UISwitch alloc] init];
     toggle.translatesAutoresizingMaskIntoConstraints = NO;
+    toggle.accessibilityLabel = title;
+    [toggle setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     [toggle addTarget:self action:selector forControlEvents:UIControlEventValueChanged];
 
     [container addSubview:label];
@@ -129,11 +141,13 @@
 
     [NSLayoutConstraint activateConstraints:@[
         [label.leadingAnchor constraintEqualToAnchor:container.leadingAnchor],
+        [label.topAnchor constraintGreaterThanOrEqualToAnchor:container.topAnchor constant:8.0],
+        [label.bottomAnchor constraintLessThanOrEqualToAnchor:container.bottomAnchor constant:-8.0],
         [label.centerYAnchor constraintEqualToAnchor:container.centerYAnchor],
         [toggle.trailingAnchor constraintEqualToAnchor:container.trailingAnchor],
         [toggle.centerYAnchor constraintEqualToAnchor:container.centerYAnchor],
         [label.trailingAnchor constraintLessThanOrEqualToAnchor:toggle.leadingAnchor constant:-12.0],
-        [container.heightAnchor constraintEqualToConstant:32.0],
+        [container.heightAnchor constraintGreaterThanOrEqualToConstant:44.0],
     ]];
 
     [stack addArrangedSubview:container];
@@ -177,6 +191,7 @@
     self.hintSwitch.on = [FSHSettings showShortestCodeHint];
     self.sensitiveSwitch.on = [FSHSettings disableImeInSensitiveFields];
     self.noLearningSwitch.on = [FSHSettings sensitiveIncludeNoPersonalizedLearning];
+    self.noLearningSwitch.enabled = self.sensitiveSwitch.isOn;
 }
 
 - (void)heightChanged:(UISlider *)slider {
@@ -226,6 +241,7 @@
 
 - (void)sensitiveChanged:(UISwitch *)toggle {
     [FSHSettings setDisableImeInSensitiveFields:toggle.isOn];
+    self.noLearningSwitch.enabled = toggle.isOn;
 }
 
 - (void)noLearningChanged:(UISwitch *)toggle {

@@ -30,7 +30,7 @@ This branch starts from `master` at `2d449c3ce19b5faaa0704d4c67a69a4e75f0736f`. 
 | F24 | Under test | Duplicate comma/period entries in main dictionary | Exact duplicates removed, alternate codes retained |
 | F25 | Under test | Host app lacks character-to-all-codes search | Offline lookup: 行→MV/MIRI, 中→CI/CJ/CJV |
 | F26 | Under test | Settings accept arbitrary numbers/strings | Range/enum sanitation and legacy fixture tests |
-| F27 | Open | Sensitive setting label overstates implemented trait guard | UI wording matches actual password/OTP trait behavior |
+| F27 | Under test | Sensitive setting label overstates implemented trait guard | UI wording matches actual password/OTP trait behavior |
 | F28 | Open | Host controls anchored below keyboard | Reachable focused inputs in portrait/landscape/iPad |
 | F29 | Open | Keyboard height ignores available landscape/floating space | No negative frames/constraint breaks with expanded candidates |
 | F30 | Open | Leading [ and ] roots are absent from letter keyboard | Both root candidates compose; symbols still insert literal brackets |

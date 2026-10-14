@@ -9,6 +9,7 @@
 #import "FSHCinParser.h"
 #import "FSHSettings.h"
 #import "CodeSearchViewController.h"
+#import "SettingsViewController.h"
 #import "ViewController.h"
 
 @interface ViewController (CodeSearchTests)
@@ -139,7 +140,20 @@ static id FSHFixtureDefaults;
 @interface FSHFakeDocumentProxy : NSObject
 @property (nonatomic, strong) NSMutableString *text;
 @property (nonatomic, assign, getter=isSecureTextEntry) BOOL secureTextEntry;
+@property (nonatomic, copy) NSString *textContentType;
 @property (nonatomic, copy) NSUUID *documentIdentifier;
+@end
+
+@interface FSHNoContentTypeProxy : FSHFakeDocumentProxy
+@end
+
+@implementation FSHNoContentTypeProxy
+- (BOOL)respondsToSelector:(SEL)aSelector {
+    if (aSelector == @selector(textContentType)) {
+        return NO;
+    }
+    return [super respondsToSelector:aSelector];
+}
 @end
 
 @implementation FSHFakeDocumentProxy
@@ -1186,6 +1200,78 @@ static id FSHFixtureDefaults;
     [self.deleteButton sendActionsForControlEvents:UIControlEventTouchUpInside];
     [self tapDelete];
     XCTAssertEqualObjects(self.proxy.text, @"abcd");
+}
+
+- (void)testSensitiveTraitMatrixMatchesSettingsExplanation {
+    NSArray<NSDictionary *> *cases = @[
+        @{@"type": [NSNull null], @"protected": @NO},
+        @{@"type": UITextContentTypeUsername, @"protected": @NO},
+        @{@"type": UITextContentTypeEmailAddress, @"protected": @NO},
+        @{@"type": UITextContentTypePassword, @"protected": @YES},
+        @{@"type": UITextContentTypeNewPassword, @"protected": @YES},
+        @{@"type": UITextContentTypeOneTimeCode, @"protected": @YES},
+    ];
+    for (NSNumber *master in @[@NO, @YES]) {
+        for (NSNumber *optional in @[@NO, @YES]) {
+            for (NSDictionary *fixture in cases) {
+                FSHFakeDocumentProxy *proxy = [[FSHFakeDocumentProxy alloc] init];
+                if (fixture[@"type"] != [NSNull null]) {
+                    proxy.textContentType = fixture[@"type"];
+                }
+                FSHTestInputController *controller = [[FSHTestInputController alloc] init];
+                controller.fakeProxy = proxy;
+                [controller loadViewIfNeeded];
+                [controller setValue:master forKey:@"disableIMEInSensitive"];
+                [controller setValue:optional forKey:@"sensitiveIncludeNoPersonalized"];
+                FSHKeyboardView *keyboard = [controller valueForKey:@"keyboardView"];
+                [controller keyboardView:keyboard didPressKeyCode:0 output:@"a"];
+                BOOL blocked = master.boolValue && optional.boolValue && [fixture[@"protected"] boolValue];
+                XCTAssertEqualObjects(proxy.text, blocked ? @"" : @"a",
+                                      @"master %@ optional %@ content type %@", master, optional, fixture[@"type"]);
+            }
+            FSHFakeDocumentProxy *secureProxy = [[FSHFakeDocumentProxy alloc] init];
+            secureProxy.secureTextEntry = YES;
+            FSHTestInputController *secureController = [[FSHTestInputController alloc] init];
+            secureController.fakeProxy = secureProxy;
+            [secureController loadViewIfNeeded];
+            [secureController setValue:master forKey:@"disableIMEInSensitive"];
+            [secureController setValue:optional forKey:@"sensitiveIncludeNoPersonalized"];
+            [secureController keyboardView:[secureController valueForKey:@"keyboardView"] didPressKeyCode:0 output:@"a"];
+            XCTAssertEqualObjects(secureProxy.text, master.boolValue ? @"" : @"a");
+        }
+    }
+
+    FSHNoContentTypeProxy *missingTrait = [[FSHNoContentTypeProxy alloc] init];
+    FSHTestInputController *controller = [[FSHTestInputController alloc] init];
+    controller.fakeProxy = missingTrait;
+    [controller loadViewIfNeeded];
+    [controller setValue:@YES forKey:@"disableIMEInSensitive"];
+    [controller setValue:@YES forKey:@"sensitiveIncludeNoPersonalized"];
+    [controller keyboardView:[controller valueForKey:@"keyboardView"] didPressKeyCode:0 output:@"a"];
+    XCTAssertEqualObjects(missingTrait.text, @"a");
+}
+
+- (void)testSensitiveSettingsLabelsDescribeActualTraitGuard {
+    SettingsViewController *settings = [[SettingsViewController alloc] init];
+    [settings loadViewIfNeeded];
+    UISwitch *master = [settings valueForKey:@"sensitiveSwitch"];
+    UISwitch *optional = [settings valueForKey:@"noLearningSwitch"];
+    XCTAssertEqualObjects(master.accessibilityLabel, @"安全輸入欄位停用輸入法");
+    XCTAssertEqualObjects(optional.accessibilityLabel, @"包含密碼與一次性驗證碼欄位");
+    XCTAssertEqual(optional.enabled, master.isOn);
+    NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:settings.view];
+    NSMutableArray<NSString *> *texts = [NSMutableArray array];
+    while (pending.count > 0) {
+        UIView *view = pending.lastObject;
+        [pending removeLastObject];
+        [pending addObjectsFromArray:view.subviews];
+        if ([view isKindOfClass:[UILabel class]]) {
+            [texts addObject:((UILabel *)view).text ?: @""];
+        }
+    }
+    NSString *allText = [texts componentsJoinedByString:@" "];
+    XCTAssertTrue([allText containsString:@"無法辨識所有敏感內容"]);
+    XCTAssertFalse([allText containsString:@"No Personalized Learning"]);
 }
 
 - (void)testCandidateFromPreviousDocumentCannotCommitAfterFocusChange {
