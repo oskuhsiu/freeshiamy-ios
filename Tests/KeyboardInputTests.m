@@ -103,6 +103,28 @@ static id FSHFixtureDefaults;
 }
 @end
 
+@interface FSHCandidateBarTestDelegate : NSObject <FSHCandidateBarViewDelegate>
+@property (nonatomic, strong) NSMutableArray<NSNumber *> *selectedIndexes;
+@property (nonatomic, assign) NSUInteger expansionChangeCount;
+@end
+
+@implementation FSHCandidateBarTestDelegate
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _selectedIndexes = [NSMutableArray array];
+    }
+    return self;
+}
+- (void)candidateBarViewDidTapRawBuffer:(FSHCandidateBarView *)barView {}
+- (void)candidateBarView:(FSHCandidateBarView *)barView didSelectCandidateAtIndex:(NSUInteger)index {
+    [self.selectedIndexes addObject:@(index)];
+}
+- (void)candidateBarView:(FSHCandidateBarView *)barView didToggleExpanded:(BOOL)expanded {
+    self.expansionChangeCount++;
+}
+@end
+
 @interface FSHFakeDocumentProxy : NSObject
 @property (nonatomic, strong) NSMutableString *text;
 @property (nonatomic, assign, getter=isSecureTextEntry) BOOL secureTextEntry;
@@ -196,6 +218,15 @@ static id FSHFixtureDefaults;
 - (void)tapDelete {
     [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
     [self.deleteButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+}
+
+- (NSArray<FSHCandidate *> *)candidatesWithCount:(NSUInteger)count code:(NSString *)code {
+    NSMutableArray<FSHCandidate *> *candidates = [NSMutableArray arrayWithCapacity:count];
+    for (NSUInteger index = 0; index < count; index++) {
+        [candidates addObject:[[FSHCandidate alloc] initWithCode:code
+                                                          value:[NSString stringWithFormat:@"候%lu", (unsigned long)index]]];
+    }
+    return candidates;
 }
 
 - (void)waitForSeconds:(NSTimeInterval)seconds {
@@ -586,6 +617,160 @@ static id FSHFixtureDefaults;
                                        @"%@", geometry);
         }
     }
+}
+
+- (void)testCandidateScrollResetsOnlyForSemanticQueryChanges {
+    FSHCandidateBarView *bar = [[FSHCandidateBarView alloc] initWithFrame:CGRectMake(0.0, 0.0, 200.0, 217.5)];
+    NSArray<FSHCandidate *> *candidates = [self candidatesWithCount:30 code:@"a"];
+    [bar updateRawBuffer:@"a" candidates:candidates exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
+    [bar setExpanded:YES];
+    [bar layoutIfNeeded];
+    UIScrollView *inlineScroll = [bar valueForKey:@"scrollView"];
+    UIScrollView *moreScroll = [bar valueForKey:@"moreScrollView"];
+    XCTAssertGreaterThan(inlineScroll.contentSize.width - inlineScroll.bounds.size.width, 30.0);
+    XCTAssertGreaterThan(moreScroll.contentSize.height - moreScroll.bounds.size.height, 40.0);
+    inlineScroll.contentOffset = CGPointMake(30.0, 0.0);
+    moreScroll.contentOffset = CGPointMake(0.0, 40.0);
+
+    [bar updateRawBuffer:@"a" candidates:[self candidatesWithCount:30 code:@"a"]
+             exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
+    [bar layoutIfNeeded];
+    XCTAssertEqualWithAccuracy(inlineScroll.contentOffset.x, 30.0, 0.5);
+    XCTAssertEqualWithAccuracy(moreScroll.contentOffset.y, 40.0, 0.5);
+    bar.frame = CGRectMake(0.0, 0.0, 220.0, 217.5);
+    [bar layoutIfNeeded];
+    XCTAssertEqualWithAccuracy(inlineScroll.contentOffset.x, 30.0, 0.5);
+    XCTAssertEqualWithAccuracy(moreScroll.contentOffset.y, 40.0, 0.5);
+
+    [bar updateRawBuffer:@"b" candidates:[self candidatesWithCount:30 code:@"a"]
+             exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
+    [bar layoutIfNeeded];
+    XCTAssertEqualWithAccuracy(inlineScroll.contentOffset.x, 0.0, 0.5);
+    XCTAssertEqualWithAccuracy(moreScroll.contentOffset.y, 0.0, 0.5);
+    inlineScroll.contentOffset = CGPointMake(30.0, 0.0);
+    moreScroll.contentOffset = CGPointMake(0.0, 40.0);
+    [bar updateRawBuffer:@"b" candidates:[self candidatesWithCount:30 code:@"different"]
+             exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
+    [bar layoutIfNeeded];
+    XCTAssertEqualWithAccuracy(inlineScroll.contentOffset.x, 0.0, 0.5);
+    XCTAssertEqualWithAccuracy(moreScroll.contentOffset.y, 0.0, 0.5);
+
+    NSMutableString *mutableRaw = [@"c" mutableCopy];
+    [bar updateRawBuffer:mutableRaw candidates:[self candidatesWithCount:30 code:@"a"]
+             exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
+    [bar layoutIfNeeded];
+    inlineScroll.contentOffset = CGPointMake(30.0, 0.0);
+    moreScroll.contentOffset = CGPointMake(0.0, 40.0);
+    [mutableRaw setString:@"d"];
+    [bar updateRawBuffer:mutableRaw candidates:[self candidatesWithCount:30 code:@"a"]
+             exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
+    [bar layoutIfNeeded];
+    XCTAssertEqualWithAccuracy(inlineScroll.contentOffset.x, 0.0, 0.5);
+    XCTAssertEqualWithAccuracy(moreScroll.contentOffset.y, 0.0, 0.5);
+}
+
+- (void)testCandidateButtonsReuseViewsAndMapCurrentIndexesOnce {
+    FSHCandidateBarView *bar = [[FSHCandidateBarView alloc] initWithFrame:CGRectMake(0.0, 0.0, 200.0, 217.5)];
+    FSHCandidateBarTestDelegate *delegate = [[FSHCandidateBarTestDelegate alloc] init];
+    bar.delegate = delegate;
+    [bar updateRawBuffer:@"a" candidates:[self candidatesWithCount:30 code:@"a"]
+             exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
+    [bar setExpanded:YES];
+    [bar layoutIfNeeded];
+    UIStackView *inlineStack = [bar valueForKey:@"candidateStack"];
+    UIView *moreContent = [bar valueForKey:@"moreContentView"];
+    NSArray<UIButton *> *initialInline = (NSArray<UIButton *> *)[inlineStack.arrangedSubviews copy];
+    NSArray<UIButton *> *initialMore = (NSArray<UIButton *> *)[moreContent.subviews copy];
+    XCTAssertEqual(delegate.expansionChangeCount, (NSUInteger)1);
+    XCTAssertEqual(initialInline.count, (NSUInteger)10);
+    XCTAssertEqual(initialMore.count, (NSUInteger)30);
+    for (NSUInteger iteration = 0; iteration < 20; iteration++) {
+        [bar updateRawBuffer:@"a" candidates:[self candidatesWithCount:30 code:@"a"]
+                 exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
+        [bar setNeedsLayout];
+        [bar layoutIfNeeded];
+        XCTAssertEqualObjects(inlineStack.arrangedSubviews, initialInline);
+        XCTAssertEqualObjects(moreContent.subviews, initialMore);
+        XCTAssertEqual(delegate.expansionChangeCount, (NSUInteger)1);
+    }
+
+    [bar updateRawBuffer:@"a" candidates:[self candidatesWithCount:11 code:@"a"]
+             exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
+    [bar layoutIfNeeded];
+    XCTAssertEqual(moreContent.subviews.count, (NSUInteger)11);
+    [bar updateRawBuffer:@"a" candidates:[self candidatesWithCount:30 code:@"a"]
+             exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
+    [bar layoutIfNeeded];
+    XCTAssertEqualObjects(inlineStack.arrangedSubviews, initialInline);
+    XCTAssertEqualObjects(moreContent.subviews, initialMore);
+    [bar updateRawBuffer:@"a" candidates:[self candidatesWithCount:45 code:@"a"]
+             exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
+    [bar layoutIfNeeded];
+    NSArray *inlinePool = [bar valueForKey:@"inlineButtonPool"];
+    NSArray *morePool = [bar valueForKey:@"moreButtonPool"];
+    XCTAssertEqual(inlinePool.count, (NSUInteger)10);
+    XCTAssertEqual(morePool.count, (NSUInteger)45);
+    UIButton *inlineButton = (UIButton *)inlineStack.arrangedSubviews[2];
+    UIButton *moreButton = (UIButton *)moreContent.subviews[12];
+    XCTAssertEqual([[inlineButton actionsForTarget:bar forControlEvent:UIControlEventTouchUpInside] count], (NSUInteger)1);
+    XCTAssertEqual([[moreButton actionsForTarget:bar forControlEvent:UIControlEventTouchUpInside] count], (NSUInteger)1);
+    [inlineButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+    [moreButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+    XCTAssertEqualObjects(delegate.selectedIndexes, (@[@2, @12]));
+
+    [bar updateRawBuffer:@"" candidates:@[] exactCount:0 inlineLimit:10 moreLimit:50 hintText:nil];
+    [bar layoutIfNeeded];
+    XCTAssertEqual(moreContent.subviews.count, (NSUInteger)0);
+    NSLayoutConstraint *moreHeight = [bar valueForKey:@"moreContentHeightConstraint"];
+    XCTAssertEqualWithAccuracy(moreHeight.constant, 0.0, 0.5);
+    XCTAssertEqual(morePool.count, (NSUInteger)45);
+}
+
+- (void)testCandidatePoolsRespectChangingLimitsAndRefreshValues {
+    FSHCandidateBarView *bar = [[FSHCandidateBarView alloc] initWithFrame:CGRectMake(0.0, 0.0, 200.0, 217.5)];
+    NSArray<FSHCandidate *> *candidates = [self candidatesWithCount:65 code:@"a"];
+    [bar updateRawBuffer:@"a" candidates:candidates exactCount:20 inlineLimit:20 moreLimit:500 hintText:nil];
+    [bar setExpanded:YES];
+    [bar layoutIfNeeded];
+    UIStackView *inlineStack = [bar valueForKey:@"candidateStack"];
+    UIView *moreContent = [bar valueForKey:@"moreContentView"];
+    UIScrollView *inlineScroll = [bar valueForKey:@"scrollView"];
+    NSArray<UIButton *> *initialInline = (NSArray<UIButton *> *)[inlineStack.arrangedSubviews copy];
+    NSArray<UIButton *> *initialMore = (NSArray<UIButton *> *)[moreContent.subviews copy];
+    XCTAssertEqual(initialInline.count, (NSUInteger)20);
+    XCTAssertEqual(initialMore.count, (NSUInteger)65);
+
+    [bar updateRawBuffer:@"a" candidates:[self candidatesWithCount:65 code:@"a"]
+             exactCount:20 inlineLimit:5 moreLimit:50 hintText:nil];
+    [bar layoutIfNeeded];
+    XCTAssertEqual(inlineStack.arrangedSubviews.count, (NSUInteger)5);
+    XCTAssertEqual(moreContent.subviews.count, (NSUInteger)50);
+    [bar updateRawBuffer:@"a" candidates:[self candidatesWithCount:65 code:@"a"]
+             exactCount:20 inlineLimit:20 moreLimit:500 hintText:nil];
+    [bar layoutIfNeeded];
+    XCTAssertEqualObjects(inlineStack.arrangedSubviews, initialInline);
+    XCTAssertEqualObjects(moreContent.subviews, initialMore);
+
+    NSMutableArray<FSHCandidate *> *changed = [[self candidatesWithCount:65 code:@"a"] mutableCopy];
+    changed[2] = [[FSHCandidate alloc] initWithCode:@"b" value:@"新候選"];
+    [bar updateRawBuffer:@"a" candidates:changed exactCount:0 inlineLimit:20 moreLimit:500 hintText:nil];
+    [bar layoutIfNeeded];
+    UIButton *inlineButton = (UIButton *)inlineStack.arrangedSubviews[2];
+    UIButton *moreButton = (UIButton *)moreContent.subviews[2];
+    XCTAssertEqualObjects([inlineButton titleForState:UIControlStateNormal], @"新候選");
+    XCTAssertEqualObjects([moreButton titleForState:UIControlStateNormal], @"新候選");
+    XCTAssertEqualObjects([inlineButton titleColorForState:UIControlStateNormal], [UIColor secondaryLabelColor]);
+    XCTAssertEqualObjects([moreButton titleColorForState:UIControlStateNormal], [UIColor secondaryLabelColor]);
+    XCTAssertEqualObjects(inlineButton, initialInline[2]);
+    XCTAssertEqualObjects(moreButton, initialMore[2]);
+
+    inlineScroll.contentOffset = CGPointMake(100.0, 0.0);
+    bar.frame = CGRectMake(0.0, 0.0, 1200.0, 217.5);
+    [bar setNeedsLayout];
+    [bar layoutIfNeeded];
+    CGFloat maximum = MAX(0.0, inlineScroll.contentSize.width - inlineScroll.bounds.size.width);
+    XCTAssertLessThanOrEqual(inlineScroll.contentOffset.x, maximum + 0.5);
+    XCTAssertGreaterThanOrEqual(inlineScroll.contentOffset.x, -0.5);
 }
 
 - (void)testProductionKeyboardViewsRenderInAttachedHostWindow {

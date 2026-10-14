@@ -13,12 +13,14 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 @property (nonatomic, strong) UIView *candidateArea;
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UIStackView *candidateStack;
+@property (nonatomic, strong) NSMutableArray<UIButton *> *inlineButtonPool;
 @property (nonatomic, strong) UIButton *moreButton;
 @property (nonatomic, strong) UILabel *hintLabel;
 
 @property (nonatomic, strong) UIView *moreContainer;
 @property (nonatomic, strong) UIScrollView *moreScrollView;
 @property (nonatomic, strong) UIView *moreContentView;
+@property (nonatomic, strong) NSMutableArray<UIButton *> *moreButtonPool;
 
 @property (nonatomic, strong) NSLayoutConstraint *moreHeightConstraint;
 @property (nonatomic, strong) NSLayoutConstraint *moreContentHeightConstraint;
@@ -29,6 +31,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 @property (nonatomic, assign) NSUInteger currentExactCount;
 @property (nonatomic, assign) NSUInteger currentInlineLimit;
 @property (nonatomic, assign) NSUInteger currentMoreLimit;
+@property (nonatomic, copy) NSArray *currentQuerySignature;
 
 @end
 
@@ -63,6 +66,9 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 }
 
 - (void)setExpanded:(BOOL)expanded animated:(BOOL)animated {
+    if (_expanded == expanded) {
+        return;
+    }
     _expanded = expanded;
     self.moreContainer.hidden = !expanded;
     self.moreHeightConstraint.constant = expanded ? kFSHCandidateMoreHeight : 0.0;
@@ -86,12 +92,32 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
                hintText:(NSString *)hintText {
     [UIView performWithoutAnimation:^{
         BOOL canLayoutNow = (self.window && self.bounds.size.width > 0.0 && self.bounds.size.height > 0.0);
+        NSString *rawText = [rawBuffer copy] ?: @"";
+        NSArray<FSHCandidate *> *nextCandidates = candidates ?: @[];
+        NSMutableArray *candidateValues = [NSMutableArray arrayWithCapacity:nextCandidates.count];
+        for (FSHCandidate *candidate in nextCandidates) {
+            [candidateValues addObject:@[candidate.code ?: @"", candidate.value ?: @""]];
+        }
+        NSArray *querySignature = @[rawText, candidateValues];
+        BOOL queryChanged = ![self.currentQuerySignature isEqual:querySignature];
+        if (queryChanged) {
+            for (UIButton *button in self.candidateStack.arrangedSubviews) {
+                [button cancelTrackingWithEvent:nil];
+                button.highlighted = NO;
+            }
+            for (UIButton *button in self.moreContentView.subviews) {
+                [button cancelTrackingWithEvent:nil];
+                button.highlighted = NO;
+            }
+            self.scrollView.contentOffset = CGPointZero;
+            self.moreScrollView.contentOffset = CGPointZero;
+        }
+        self.currentQuerySignature = querySignature;
         self.currentCandidates = candidates ?: @[];
         self.currentExactCount = exactCount;
         self.currentInlineLimit = inlineLimit;
         self.currentMoreLimit = moreLimit;
 
-        NSString *rawText = rawBuffer ?: @"";
         [self.rawButton setTitle:rawText forState:UIControlStateNormal];
         self.rawButton.hidden = (rawText.length == 0);
 
@@ -106,6 +132,9 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 
         if (showHint || !hasContent) {
             [self setExpanded:NO animated:NO];
+            if (self.currentCandidates.count == 0) {
+                [self rebuildMoreCandidatesWithLimit:0];
+            }
             if (canLayoutNow) {
                 [self layoutIfNeeded];
             } else {
@@ -116,7 +145,8 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 
         [self rebuildInlineCandidatesWithLimit:inlineLimit];
 
-        BOOL showMoreButton = (self.currentCandidates.count > inlineLimit);
+        NSUInteger visibleInlineLimit = inlineLimit == 0 ? 20 : MIN(inlineLimit, 20);
+        BOOL showMoreButton = (self.currentCandidates.count > visibleInlineLimit);
         self.moreButton.hidden = !showMoreButton;
         if (showMoreButton) {
             self.scrollTrailingWithoutMore.active = NO;
@@ -129,6 +159,10 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
             [self setExpanded:NO animated:NO];
         }
 
+        if (self.currentCandidates.count == 0) {
+            [self rebuildMoreCandidatesWithLimit:0];
+        }
+
         if (self.isExpanded) {
             [self rebuildMoreCandidatesWithLimit:self.currentMoreLimit];
         }
@@ -137,7 +171,18 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
         } else {
             [self setNeedsLayout];
         }
+        if (queryChanged) {
+            self.scrollView.contentOffset = CGPointZero;
+            self.moreScrollView.contentOffset = CGPointZero;
+        }
     }];
+}
+
+- (void)clampScrollOffsets {
+    CGFloat inlineMaximum = MAX(0.0, self.scrollView.contentSize.width - CGRectGetWidth(self.scrollView.bounds));
+    CGFloat moreMaximum = MAX(0.0, self.moreScrollView.contentSize.height - CGRectGetHeight(self.moreScrollView.bounds));
+    self.scrollView.contentOffset = CGPointMake(MIN(MAX(self.scrollView.contentOffset.x, 0.0), inlineMaximum), 0.0);
+    self.moreScrollView.contentOffset = CGPointMake(0.0, MIN(MAX(self.moreScrollView.contentOffset.y, 0.0), moreMaximum));
 }
 
 - (void)setupViews {
@@ -176,6 +221,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     self.candidateStack.alignment = UIStackViewAlignmentCenter;
     self.candidateStack.spacing = 1.0;
     [self.scrollView addSubview:self.candidateStack];
+    self.inlineButtonPool = [NSMutableArray array];
 
     self.moreButton = [UIButton buttonWithType:UIButtonTypeSystem];
     self.moreButton.translatesAutoresizingMaskIntoConstraints = NO;
@@ -206,6 +252,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     self.moreContentView = [[UIView alloc] init];
     self.moreContentView.translatesAutoresizingMaskIntoConstraints = NO;
     [self.moreScrollView addSubview:self.moreContentView];
+    self.moreButtonPool = [NSMutableArray array];
 
     [NSLayoutConstraint activateConstraints:@[
         [self.topBar.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
@@ -275,28 +322,49 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 }
 
 - (void)rebuildInlineCandidatesWithLimit:(NSUInteger)inlineLimit {
-    for (UIView *view in self.candidateStack.arrangedSubviews) {
-        [self.candidateStack removeArrangedSubview:view];
-        [view removeFromSuperview];
-    }
-
-    NSUInteger limit = inlineLimit == 0 ? self.currentCandidates.count : inlineLimit;
+    NSUInteger limit = inlineLimit == 0 ? 20 : MIN(inlineLimit, 20);
     NSUInteger count = MIN(self.currentCandidates.count, limit);
+    while (self.candidateStack.arrangedSubviews.count > count) {
+        UIButton *button = (UIButton *)self.candidateStack.arrangedSubviews.lastObject;
+        [button cancelTrackingWithEvent:nil];
+        button.highlighted = NO;
+        [self.candidateStack removeArrangedSubview:button];
+        [button removeFromSuperview];
+    }
     for (NSUInteger index = 0; index < count; index++) {
         FSHCandidate *candidate = self.currentCandidates[index];
-        UIButton *button = [self candidateButtonForIndex:index candidate:candidate exactCount:self.currentExactCount];
-        [self.candidateStack addArrangedSubview:button];
+        UIButton *button;
+        if (index < self.inlineButtonPool.count) {
+            button = self.inlineButtonPool[index];
+            [self configureCandidateButton:button index:index candidate:candidate exactCount:self.currentExactCount];
+        } else {
+            button = [self candidateButtonForIndex:index candidate:candidate exactCount:self.currentExactCount];
+            [self.inlineButtonPool addObject:button];
+        }
+        if (button.superview != self.candidateStack) {
+            [self.candidateStack addArrangedSubview:button];
+        }
     }
 }
 
 - (void)rebuildMoreCandidatesWithLimit:(NSUInteger)moreLimit {
-    for (UIView *view in self.moreContentView.subviews) {
-        [view removeFromSuperview];
-    }
-
-    NSUInteger limit = moreLimit == 0 ? self.currentCandidates.count : moreLimit;
+    NSUInteger limit = moreLimit == 0 ? 500 : MIN(moreLimit, 500);
     NSUInteger count = MIN(self.currentCandidates.count, limit);
+    for (NSUInteger index = count; index < self.moreButtonPool.count; index++) {
+        UIButton *button = self.moreButtonPool[index];
+        if (button.superview == self.moreContentView) {
+            [button cancelTrackingWithEvent:nil];
+            button.highlighted = NO;
+            [button removeFromSuperview];
+        }
+    }
     if (count == 0) {
+        if (self.moreContentHeightConstraint.constant != 0.0) {
+            self.moreContentHeightConstraint.constant = 0.0;
+        }
+        if (!CGSizeEqualToSize(self.moreScrollView.contentSize, CGSizeZero)) {
+            self.moreScrollView.contentSize = CGSizeZero;
+        }
         return;
     }
 
@@ -315,15 +383,29 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
         CGFloat y = (kFSHCandidateButtonHeight + gap) * row;
 
         FSHCandidate *candidate = self.currentCandidates[index];
-        UIButton *button = [self candidateButtonForIndex:index candidate:candidate exactCount:self.currentExactCount];
+        UIButton *button;
+        if (index < self.moreButtonPool.count) {
+            button = self.moreButtonPool[index];
+            [self configureCandidateButton:button index:index candidate:candidate exactCount:self.currentExactCount];
+        } else {
+            button = [self candidateButtonForIndex:index candidate:candidate exactCount:self.currentExactCount];
+            [self.moreButtonPool addObject:button];
+        }
         button.frame = CGRectMake(x, y, buttonWidth, kFSHCandidateButtonHeight);
-        [self.moreContentView addSubview:button];
+        if (button.superview != self.moreContentView) {
+            [self.moreContentView addSubview:button];
+        }
     }
 
     CGFloat rows = ceil((double)count / (double)kFSHCandidateMoreColumns);
     CGFloat contentHeight = rows * kFSHCandidateButtonHeight + (rows - 1) * gap;
-    self.moreContentHeightConstraint.constant = contentHeight;
-    self.moreScrollView.contentSize = CGSizeMake(totalWidth, contentHeight);
+    if (self.moreContentHeightConstraint.constant != contentHeight) {
+        self.moreContentHeightConstraint.constant = contentHeight;
+    }
+    CGSize contentSize = CGSizeMake(totalWidth, contentHeight);
+    if (!CGSizeEqualToSize(self.moreScrollView.contentSize, contentSize)) {
+        self.moreScrollView.contentSize = contentSize;
+    }
 }
 
 - (UIButton *)candidateButtonForIndex:(NSUInteger)index
@@ -338,11 +420,22 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     button.layer.cornerRadius = 6.0;
     button.layer.borderWidth = 0.5;
     button.layer.borderColor = [UIColor systemGray4Color].CGColor;
-    [button setTitle:candidate.value forState:UIControlStateNormal];
-    UIColor *titleColor = [self candidateColorForIndex:index exactCount:exactCount];
-    [button setTitleColor:titleColor forState:UIControlStateNormal];
     [button addTarget:self action:@selector(handleCandidateTap:) forControlEvents:UIControlEventTouchUpInside];
+    [self configureCandidateButton:button index:index candidate:candidate exactCount:exactCount];
     return button;
+}
+
+- (void)configureCandidateButton:(UIButton *)button
+                           index:(NSUInteger)index
+                       candidate:(FSHCandidate *)candidate
+                      exactCount:(NSUInteger)exactCount {
+    if (button.tag != (NSInteger)index || ![[button titleForState:UIControlStateNormal] isEqualToString:candidate.value]) {
+        [button cancelTrackingWithEvent:nil];
+        button.highlighted = NO;
+    }
+    button.tag = index;
+    [button setTitle:candidate.value forState:UIControlStateNormal];
+    [button setTitleColor:[self candidateColorForIndex:index exactCount:exactCount] forState:UIControlStateNormal];
 }
 
 - (UIColor *)candidateColorForIndex:(NSUInteger)index exactCount:(NSUInteger)exactCount {
@@ -379,6 +472,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     if (self.isExpanded) {
         [self rebuildMoreCandidatesWithLimit:self.currentMoreLimit];
     }
+    [self clampScrollOffsets];
 }
 
 @end
