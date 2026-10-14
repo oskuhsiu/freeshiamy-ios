@@ -93,7 +93,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
         [self.rawButton setTitle:rawText forState:UIControlStateNormal];
         self.rawButton.hidden = (rawText.length == 0);
 
-        BOOL showHint = (rawText.length == 0 && hintText.length > 0);
+        BOOL showHint = (hintText.length > 0 && self.currentCandidates.count == 0);
         self.hintLabel.text = hintText ?: @"";
         self.hintLabel.hidden = !showHint;
         self.candidateArea.hidden = showHint;

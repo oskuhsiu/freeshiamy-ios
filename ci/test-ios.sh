@@ -5,6 +5,7 @@ export DEVELOPER_DIR=/Applications/Xcode_26.2.app/Contents/Developer
 ARTIFACTS="${GITHUB_WORKSPACE:-$PWD}/ci-artifacts"
 TEMP_ROOT="${RUNNER_TEMP:-/tmp}"
 mkdir -p "$ARTIFACTS"
+echo "[stage] preflight"
 
 if [[ ! -d "$DEVELOPER_DIR" ]]; then
     echo "Required Xcode 26.2 is unavailable: $DEVELOPER_DIR" | tee "$ARTIFACTS/preflight.log"
@@ -47,6 +48,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+echo "[stage] boot job-owned simulator $DEVICE_ID"
 xcrun simctl boot "$DEVICE_ID"
 python3 - "$DEVICE_ID" "$ARTIFACTS/simulator-boot.log" <<'PY'
 import subprocess, sys
@@ -56,6 +58,7 @@ with open(sys.argv[2], "wb") as log:
 PY
 
 set +e
+echo "[stage] xcodebuild test on $DEVICE_ID"
 xcodebuild test \
     -project freeshiamy-ios.xcodeproj \
     -scheme freeshiamy-ios \
@@ -69,6 +72,7 @@ xcodebuild test \
 result=$?
 set -e
 
+echo "[stage] xcodebuild exit status $result"
 xcrun simctl io "$DEVICE_ID" screenshot "$ARTIFACTS/simulator-final.png" || true
 tail -n 120 "$ARTIFACTS/xcodebuild.log"
 exit "$result"

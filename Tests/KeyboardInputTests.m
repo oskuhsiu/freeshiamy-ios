@@ -7,12 +7,17 @@
 #import "FSHShiamyEngine.h"
 #import "FSHCinParser.h"
 
+@class FSHFakeDocumentProxy;
+
 @interface InputViewController (KeyboardInputTests)
 - (void)candidateBarViewDidTapRawBuffer:(FSHCandidateBarView *)barView;
 - (void)candidateBarView:(FSHCandidateBarView *)barView didSelectCandidateAtIndex:(NSUInteger)index;
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didPressKeyCode:(NSInteger)keyCode output:(NSString *)output;
 - (void)triggerReverseLookupWithBaseIndex:(NSUInteger)index;
 - (void)updateHintForCommittedValue:(NSString *)value typedCodeLength:(NSUInteger)typedCodeLength isReverse:(BOOL)isReverse;
+- (NSUInteger)beginEngineLoad;
+- (void)refreshCandidatesAndUI;
+- (void)finishEngineLoad:(FSHShiamyEngine *)loadedEngine loaded:(BOOL)loaded error:(NSError *)error generation:(NSUInteger)generation;
 @end
 
 @interface FSHTestEngine : FSHShiamyEngine
@@ -20,6 +25,7 @@
 @end
 
 @implementation FSHTestEngine
+- (BOOL)ready { return YES; }
 - (NSArray<FSHCandidate *> *)reverseLookupCandidatesForBaseValue:(NSString *)baseValue {
     self.reverseCallCount++;
     return @[[[FSHCandidate alloc] initWithCode:@"reading" value:baseValue]];
@@ -27,6 +33,18 @@
 - (NSString *)shortestCodeForValue:(NSString *)value {
     return @"a";
 }
+@end
+
+@interface FSHAsyncInputController : InputViewController
+@property (nonatomic, strong) FSHFakeDocumentProxy *fakeProxy;
+@end
+
+@implementation FSHAsyncInputController
+- (id<UITextDocumentProxy>)textDocumentProxy {
+    return (id<UITextDocumentProxy>)self.fakeProxy;
+}
+- (void)advanceToNextInputMode {}
+- (void)dismissKeyboard {}
 @end
 
 @interface FSHFixtureEngine : FSHShiamyEngine
@@ -110,13 +128,15 @@
     self.controller = [[FSHTestInputController alloc] init];
     self.controller.fakeProxy = self.proxy;
     [self.controller loadViewIfNeeded];
+    [self.controller beginAppearanceTransition:YES animated:NO];
+    [self.controller endAppearanceTransition];
     self.keyboard = [self.controller valueForKey:@"keyboardView"];
     self.deleteButton = [self.keyboard valueForKey:@"deleteButton"];
     XCTAssertNotNil(self.deleteButton);
 }
 
 - (void)tearDown {
-    [self.controller viewWillDisappear:NO];
+    [self.keyboard cancelActivePress];
     self.deleteButton = nil;
     self.keyboard = nil;
     self.controller = nil;
@@ -253,15 +273,137 @@
 - (void)testDisappearanceAndKeyRebuildCancelRepeat {
     [self.proxy.text setString:@"abc"];
     [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
-    [self.controller viewWillDisappear:NO];
+    [self.controller beginAppearanceTransition:NO animated:NO];
+    [self.controller endAppearanceTransition];
     [self waitForSeconds:0.55];
     XCTAssertEqualObjects(self.proxy.text, @"ab");
 
+    [self.controller beginAppearanceTransition:YES animated:NO];
+    [self.controller endAppearanceTransition];
+    self.deleteButton = [self.keyboard valueForKey:@"deleteButton"];
     [self.proxy.text setString:@"abc"];
     [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
     [self.keyboard reloadKeys];
     [self waitForSeconds:0.55];
     XCTAssertEqualObjects(self.proxy.text, @"ab");
+}
+
+- (void)testColdStartInputRemainsLiteralUntilSpaceAfterReady {
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"a"];
+    XCTAssertEqualObjects(self.proxy.text, @"a");
+    XCTAssertEqualObjects([self rawBuffer], @"");
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+    UILabel *hint = [[self.controller valueForKey:@"candidateBar"] valueForKey:@"hintLabel"];
+    [self.controller refreshCandidatesAndUI];
+    XCTAssertEqualObjects(hint.text, @"正在原文輸入，空白後恢復字碼");
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"b"];
+    XCTAssertEqualObjects(self.proxy.text, @"ab");
+    XCTAssertEqualObjects([self rawBuffer], @"");
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeSpace output:@" "];
+    XCTAssertEqualObjects(self.proxy.text, @"ab ");
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"c"];
+    XCTAssertEqualObjects(self.proxy.text, @"ab ");
+    XCTAssertEqualObjects([self rawBuffer], @"c");
+}
+
+- (void)testLiteralFallbackEndsAtDocumentAndSessionBoundaries {
+    NSUUID *firstDocument = self.proxy.documentIdentifier;
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"a"];
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+    self.proxy.documentIdentifier = [NSUUID UUID];
+    XCTAssertNotEqualObjects(self.proxy.documentIdentifier, firstDocument);
+    [self.controller textDidChange:nil];
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"b"];
+    XCTAssertEqualObjects(self.proxy.text, @"a");
+    XCTAssertEqualObjects([self rawBuffer], @"b");
+
+    [[self rawBuffer] setString:@""];
+    [self.controller setValue:@0 forKey:@"engineLoadState"];
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"c"];
+    self.proxy.secureTextEntry = YES;
+    [self.controller setValue:@YES forKey:@"disableIMEInSensitive"];
+    [self.controller textDidChange:nil];
+    self.proxy.secureTextEntry = NO;
+    [self.controller textDidChange:nil];
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"d"];
+    XCTAssertEqualObjects(self.proxy.text, @"ac");
+    XCTAssertEqualObjects([self rawBuffer], @"d");
+
+    [[self rawBuffer] setString:@""];
+    [self.controller setValue:@0 forKey:@"engineLoadState"];
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"e"];
+    [self.controller beginAppearanceTransition:NO animated:NO];
+    [self.controller endAppearanceTransition];
+    [self.controller beginAppearanceTransition:YES animated:NO];
+    [self.controller endAppearanceTransition];
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"f"];
+    XCTAssertEqualObjects(self.proxy.text, @"ace");
+    XCTAssertEqualObjects([self rawBuffer], @"f");
+}
+
+- (void)testStaleEngineCompletionCannotOverwriteNewerGeneration {
+    NSUInteger oldGeneration = [self.controller beginEngineLoad];
+    NSUInteger newGeneration = [self.controller beginEngineLoad];
+    FSHTestEngine *oldEngine = [[FSHTestEngine alloc] init];
+    FSHTestEngine *newEngine = [[FSHTestEngine alloc] init];
+    [self.controller finishEngineLoad:oldEngine loaded:YES error:nil generation:oldGeneration];
+    XCTAssertNil([self.controller valueForKey:@"engine"]);
+    XCTAssertEqual([[self.controller valueForKey:@"engineLoadState"] integerValue], (NSInteger)0);
+    [self.controller finishEngineLoad:newEngine loaded:YES error:nil generation:newGeneration];
+    XCTAssertEqual([self.controller valueForKey:@"engine"], newEngine);
+    XCTAssertEqual([[self.controller valueForKey:@"engineLoadState"] integerValue], (NSInteger)1);
+    [self.controller finishEngineLoad:oldEngine loaded:YES error:nil generation:oldGeneration];
+    XCTAssertEqual([self.controller valueForKey:@"engine"], newEngine);
+    NSError *oldError = [NSError errorWithDomain:@"StaleLoad" code:1 userInfo:nil];
+    [self.controller finishEngineLoad:nil loaded:NO error:oldError generation:oldGeneration];
+    XCTAssertEqual([self.controller valueForKey:@"engine"], newEngine);
+    XCTAssertEqual([[self.controller valueForKey:@"engineLoadState"] integerValue], (NSInteger)1);
+    XCTAssertNil([self.controller valueForKey:@"engineLoadError"]);
+}
+
+- (void)testRealDictionaryCompletesAndPublishesEngine {
+    FSHAsyncInputController *controller = [[FSHAsyncInputController alloc] init];
+    controller.fakeProxy = [[FSHFakeDocumentProxy alloc] init];
+    [controller loadViewIfNeeded];
+    FSHKeyboardView *keyboard = [controller valueForKey:@"keyboardView"];
+    [controller keyboardView:keyboard didPressKeyCode:0 output:@"a"];
+    XCTAssertEqualObjects(controller.fakeProxy.text, @"a");
+    NSPredicate *completedPredicate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return [[controller valueForKey:@"engineLoadState"] integerValue] != 0;
+    }];
+    XCTNSPredicateExpectation *completed = [[XCTNSPredicateExpectation alloc] initWithPredicate:completedPredicate object:controller];
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[completed] timeout:20.0], XCTWaiterResultCompleted);
+    XCTAssertEqual([[controller valueForKey:@"engineLoadState"] integerValue], (NSInteger)1);
+    FSHShiamyEngine *engine = [controller valueForKey:@"engine"];
+    XCTAssertTrue(engine.ready);
+    XCTAssertNil([controller valueForKey:@"engineLoadError"]);
+    [controller keyboardView:keyboard didPressKeyCode:0 output:@"b"];
+    XCTAssertEqualObjects(controller.fakeProxy.text, @"ab");
+    [controller keyboardView:keyboard didPressKeyCode:FSHKeyCodeSpace output:@" "];
+    XCTAssertEqualObjects(controller.fakeProxy.text, @"ab ");
+    [keyboard cancelActivePress];
+}
+
+- (void)testReloadPreservesCompositionAndTrailingSpaceOnFailure {
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+    [[self rawBuffer] setString:@"a"];
+    [self.controller beginEngineLoad];
+    XCTAssertEqualObjects([self rawBuffer], @"a");
+    XCTAssertEqualObjects(self.proxy.text, @"");
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeSpace output:@" "];
+    XCTAssertEqualObjects([self rawBuffer], @"a ");
+    [self.controller setValue:@2 forKey:@"engineLoadState"];
+    [self.controller refreshCandidatesAndUI];
+    UILabel *hint = [[self.controller valueForKey:@"candidateBar"] valueForKey:@"hintLabel"];
+    XCTAssertEqualObjects(hint.text, @"字庫載入失敗，暫以原文輸入");
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+    [self.controller refreshCandidatesAndUI];
+    FSHCandidateBarView *bar = [self.controller valueForKey:@"candidateBar"];
+    [self.controller candidateBarViewDidTapRawBuffer:bar];
+    XCTAssertEqualObjects(self.proxy.text, @"a ");
+    XCTAssertEqualObjects([self rawBuffer], @"");
 }
 
 - (void)testSensitiveFieldBlocksFirstKeyDeleteAndCandidateCommits {
@@ -309,6 +451,39 @@
     [self.deleteButton sendActionsForControlEvents:UIControlEventTouchUpInside];
     [self tapDelete];
     XCTAssertEqualObjects(self.proxy.text, @"abcd");
+}
+
+- (void)testCandidateFromPreviousDocumentCannotCommitAfterFocusChange {
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"a"];
+    XCTAssertEqualObjects([self rawBuffer], @"a");
+    [self.controller setValue:@[[[FSHCandidate alloc] initWithCode:@"a" value:@"old field"]]
+                      forKey:@"candidates"];
+    [self.controller setValue:@"old hint" forKey:@"shortestHint"];
+    self.proxy.documentIdentifier = [NSUUID UUID];
+    [self.controller textDidChange:nil];
+    XCTAssertEqualObjects([self rawBuffer], @"");
+    XCTAssertEqualObjects([self.controller valueForKey:@"candidates"], @[]);
+    XCTAssertEqualObjects([self.controller valueForKey:@"shortestHint"], @"");
+    FSHCandidateBarView *bar = [self.controller valueForKey:@"candidateBar"];
+    [self.controller candidateBarView:bar didSelectCandidateAtIndex:0];
+    XCTAssertEqualObjects(self.proxy.text, @"");
+
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"b"];
+    [self.controller textDidChange:nil];
+    XCTAssertEqualObjects([self rawBuffer], @"b");
+}
+
+- (void)testCandidateTapChecksDocumentEvenWithoutHostNotification {
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"a"];
+    [self.controller setValue:@[[[FSHCandidate alloc] initWithCode:@"a" value:@"old field"]]
+                      forKey:@"candidates"];
+    self.proxy.documentIdentifier = [NSUUID UUID];
+    FSHCandidateBarView *bar = [self.controller valueForKey:@"candidateBar"];
+    [self.controller candidateBarView:bar didSelectCandidateAtIndex:0];
+    XCTAssertEqualObjects(self.proxy.text, @"");
+    XCTAssertEqualObjects([self rawBuffer], @"");
 }
 
 - (void)testParserRemovesTrailingCommentButPreservesLiteralHashValue {
@@ -366,6 +541,9 @@
     XCTAssertNotNil(error);
     XCTAssertFalse(engine.ready);
     XCTAssertEqual([engine prefixCandidatesForCode:@"a" exactCount:NULL].count, (NSUInteger)0);
+    XCTAssertEqual([engine reverseLookupCandidatesForBaseValue:@"中"].count, (NSUInteger)0);
+    XCTAssertNil([engine shortestCodeForValue:@"中"]);
+    XCTAssertNil([engine spellForValue:@"中"]);
 
     engine.spellPath = [directory stringByAppendingPathComponent:@"missing.cin"];
     error = nil;

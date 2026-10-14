@@ -11,13 +11,25 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
     FSHReverseStateActive,
 };
 
+typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
+    FSHDictionaryLoadStateLoading,
+    FSHDictionaryLoadStateReady,
+    FSHDictionaryLoadStateFailed,
+};
+
 @interface InputViewController () <FSHKeyboardViewDelegate, FSHCandidateBarViewDelegate>
 
 @property (nonatomic, strong) FSHCandidateBarView *candidateBar;
 @property (nonatomic, strong) FSHKeyboardView *keyboardView;
 @property (nonatomic, strong) FSHShiamyEngine *engine;
+@property (nonatomic, assign) FSHDictionaryLoadState engineLoadState;
+@property (nonatomic, strong) NSError *engineLoadError;
+@property (nonatomic, assign) NSUInteger engineLoadGeneration;
+@property (nonatomic, assign) BOOL literalFallbackActive;
+@property (nonatomic, copy) NSUUID *literalFallbackDocumentIdentifier;
 
 @property (nonatomic, strong) NSMutableString *rawBuffer;
+@property (nonatomic, copy) NSUUID *compositionDocumentIdentifier;
 @property (nonatomic, copy) NSArray<FSHCandidate *> *candidates;
 @property (nonatomic, assign) NSUInteger exactCount;
 @property (nonatomic, assign) FSHReverseState reverseState;
@@ -85,7 +97,7 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
     self.candidateBarHeightConstraint = [self.candidateBar.heightAnchor constraintEqualToConstant:self.candidateBar.barHeight];
     self.candidateBarHeightConstraint.priority = UILayoutPriorityDefaultHigh;
     self.candidateBarHeightConstraint.active = YES;
-    self.engine = [[FSHShiamyEngine alloc] init];
+    self.engineLoadState = FSHDictionaryLoadStateLoading;
     [self loadEngineAsync];
 
     [self applySettings];
@@ -103,6 +115,9 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
+    [self endLiteralFallback];
+    self.shortestHint = @"";
+    [self clearComposingState];
     [self.keyboardView cancelActivePress];
     [self stopDeleteRepeat];
     self.deleteLockout = NO;
@@ -114,22 +129,28 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 
 - (void)textWillChange:(id<UITextInput>)textInput {
     [super textWillChange:textInput];
+    [self reconcileLiteralFallbackDocument];
+    [self reconcileCompositionDocument];
     [self handleSensitiveFieldIfNeeded];
 }
 
 - (void)textDidChange:(id<UITextInput>)textInput {
     [super textDidChange:textInput];
     self.hasHostConnection = YES;
+    [self reconcileLiteralFallbackDocument];
+    [self reconcileCompositionDocument];
     [self handleSensitiveFieldIfNeeded];
 }
 
 - (void)selectionWillChange:(id<UITextInput>)textInput {
     [super selectionWillChange:textInput];
+    [self reconcileLiteralFallbackDocument];
     [self clearComposingState];
 }
 
 - (void)selectionDidChange:(id<UITextInput>)textInput {
     [super selectionDidChange:textInput];
+    [self reconcileLiteralFallbackDocument];
     [self clearComposingState];
     [self handleSensitiveFieldIfNeeded];
 }
@@ -137,14 +158,45 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 #pragma mark - Engine
 
 - (void)loadEngineAsync {
+    NSUInteger generation = [self beginEngineLoad];
+    NSBundle *bundle = [NSBundle bundleForClass:[InputViewController class]];
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        FSHShiamyEngine *loadedEngine = [[FSHShiamyEngine alloc] init];
         NSError *error = nil;
-        [weakSelf.engine loadFromBundle:[NSBundle mainBundle] error:&error];
+        BOOL loaded = [loadedEngine loadFromBundle:bundle error:&error];
         dispatch_async(dispatch_get_main_queue(), ^{
-            [weakSelf refreshCandidatesAndUI];
+            typeof(self) strongSelf = weakSelf;
+            [strongSelf finishEngineLoad:loadedEngine loaded:loaded error:error generation:generation];
         });
     });
+}
+
+- (void)finishEngineLoad:(FSHShiamyEngine *)loadedEngine
+                  loaded:(BOOL)loaded
+                   error:(NSError *)error
+              generation:(NSUInteger)generation {
+    NSAssert([NSThread isMainThread], @"Dictionary publication must occur on the main thread");
+    if (generation != self.engineLoadGeneration) {
+        return;
+    }
+    self.engine = loaded ? loadedEngine : nil;
+    self.engineLoadError = loaded ? nil : error;
+    self.engineLoadState = loaded ? FSHDictionaryLoadStateReady : FSHDictionaryLoadStateFailed;
+    [self refreshCandidatesAndUI];
+}
+
+- (NSUInteger)beginEngineLoad {
+    NSUInteger generation = ++self.engineLoadGeneration;
+    self.engineLoadState = FSHDictionaryLoadStateLoading;
+    self.engineLoadError = nil;
+    self.engine = nil;
+    self.candidates = @[];
+    self.exactCount = 0;
+    self.reverseState = FSHReverseStateNone;
+    [self updateReverseStateIfNeeded];
+    [self refreshCandidatesAndUI];
+    return generation;
 }
 
 #pragma mark - Candidate Updates
@@ -155,7 +207,8 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 
     NSUInteger exactCount = 0;
     NSArray<FSHCandidate *> *candidates = @[];
-    if (prefix.length > 0) {
+    BOOL canQuery = ([prefix rangeOfCharacterFromSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].location == NSNotFound);
+    if (prefix.length > 0 && canQuery) {
         candidates = [self.engine prefixCandidatesForCode:prefix exactCount:&exactCount];
     }
 
@@ -167,12 +220,23 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
     self.candidates = candidates ?: @[];
     self.exactCount = exactCount;
 
+    NSString *hint = self.shortestHint;
+    if (self.engineLoadState == FSHDictionaryLoadStateLoading) {
+        hint = @"字庫載入中，暫以原文輸入";
+    } else if (self.engineLoadState == FSHDictionaryLoadStateFailed) {
+        hint = @"字庫載入失敗，暫以原文輸入";
+    } else if (self.literalFallbackActive) {
+        hint = @"正在原文輸入，空白後恢復字碼";
+    } else if (prefix.length > 0 && candidates.count == 0) {
+        hint = @"無候選字，點字碼可直接輸入";
+    }
+
     [self.candidateBar updateRawBuffer:raw
                              candidates:self.candidates
                              exactCount:self.exactCount
                             inlineLimit:self.inlineLimit
                               moreLimit:self.moreLimit
-                               hintText:self.shortestHint];
+                               hintText:hint];
 }
 
 - (NSString *)currentPrefix {
@@ -198,6 +262,8 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 #pragma mark - Input Handling
 
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didPressKeyCode:(NSInteger)keyCode output:(NSString *)output {
+    [self reconcileLiteralFallbackDocument];
+    [self reconcileCompositionDocument];
     BOOL wasInSensitiveField = self.isInSensitiveField;
     BOOL hadHostConnection = self.hasHostConnection;
     if ([self blockSensitiveInputIfNeeded]) {
@@ -215,23 +281,31 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
         return;
     }
     if (keyCode == FSHKeyCodeModeChange) {
+        [self endLiteralFallback];
         [self handleModeChange];
         return;
     }
     if (keyCode == FSHKeyCodeEmoji) {
+        [self endLiteralFallback];
         self.keyboardView.mode = FSHKeyboardModeEmoji;
         return;
     }
     if (keyCode == FSHKeyCodeGlobe) {
+        [self endLiteralFallback];
         [self advanceToNextInputMode];
         return;
     }
     if (keyCode == FSHKeyCodeCancel) {
+        [self endLiteralFallback];
         [self handleDone];
         return;
     }
     if (keyCode == FSHKeyCodeSettings) {
         [self openSettings];
+        return;
+    }
+    if ((self.engineLoadState != FSHDictionaryLoadStateReady || self.literalFallbackActive) && self.rawBuffer.length == 0) {
+        [self handleLiteralKeyCode:keyCode output:output];
         return;
     }
     if (keyCode == FSHKeyCodeSpace) {
@@ -252,8 +326,59 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
     }
 }
 
+- (void)handleLiteralKeyCode:(NSInteger)keyCode output:(NSString *)output {
+    if (keyCode == FSHKeyCodeDelete) {
+        [self handleDeleteOnce];
+    } else if (keyCode == FSHKeyCodeSpace) {
+        [self.textDocumentProxy insertText:@" "];
+        [self endLiteralFallback];
+    } else if (keyCode == FSHKeyCodeEnter) {
+        [self handleEnter];
+        [self endLiteralFallback];
+    } else if (output.length > 0) {
+        NSString *literal = output;
+        BOOL isLetter = (output.length == 1 && [[NSCharacterSet letterCharacterSet] characterIsMember:[output characterAtIndex:0]]);
+        if (self.keyboardView.mode == FSHKeyboardModeLetters && isLetter && (self.shiftOn || self.capsLockOn)) {
+            literal = output.uppercaseString;
+        }
+        [self.textDocumentProxy insertText:literal];
+        self.literalFallbackActive = YES;
+        self.literalFallbackDocumentIdentifier = self.textDocumentProxy.documentIdentifier;
+        [self refreshCandidatesAndUI];
+        if (isLetter && self.shiftOn && !self.capsLockOn) {
+            self.shiftOn = NO;
+            self.keyboardView.shiftOn = NO;
+        }
+    }
+}
+
+- (void)endLiteralFallback {
+    if (!self.literalFallbackActive) {
+        return;
+    }
+    self.literalFallbackActive = NO;
+    self.literalFallbackDocumentIdentifier = nil;
+    [self refreshCandidatesAndUI];
+}
+
+- (void)reconcileLiteralFallbackDocument {
+    if (!self.literalFallbackActive) {
+        return;
+    }
+    NSUUID *current = self.textDocumentProxy.documentIdentifier;
+    if (!self.literalFallbackDocumentIdentifier) {
+        // The host may assign its document ID after the first insertion.
+        self.literalFallbackDocumentIdentifier = current;
+    } else if (![self.literalFallbackDocumentIdentifier isEqual:current]) {
+        [self endLiteralFallback];
+    }
+}
+
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didBeginPressKeyCode:(NSInteger)keyCode output:(NSString *)output {
     if (keyCode == FSHKeyCodeDelete) {
+        if ([self reconcileCompositionDocument]) {
+            return;
+        }
         if ([self blockSensitiveInputIfNeeded]) {
             return;
         }
@@ -454,6 +579,10 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 }
 
 - (void)handleDeleteOnce {
+    if ([self reconcileCompositionDocument]) {
+        [self stopDeleteRepeat];
+        return;
+    }
     if (self.deletePressActive && [self deleteTargetChanged]) {
         [self stopDeleteRepeat];
         return;
@@ -544,6 +673,9 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 #pragma mark - Commit
 
 - (void)commitCandidateAtIndex:(NSUInteger)index typedCodeLength:(NSUInteger)typedCodeLength isReverse:(BOOL)isReverse {
+    if ([self reconcileCompositionDocument]) {
+        return;
+    }
     if ([self blockSensitiveInputIfNeeded]) {
         return;
     }
@@ -561,6 +693,9 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 }
 
 - (void)commitRawBuffer {
+    if ([self reconcileCompositionDocument]) {
+        return;
+    }
     if ([self blockSensitiveInputIfNeeded]) {
         return;
     }
@@ -577,6 +712,9 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 #pragma mark - Candidate Bar Delegate
 
 - (void)candidateBarViewDidTapRawBuffer:(FSHCandidateBarView *)barView {
+    if ([self reconcileCompositionDocument]) {
+        return;
+    }
     if ([self blockSensitiveInputIfNeeded]) {
         return;
     }
@@ -584,6 +722,9 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 }
 
 - (void)candidateBarView:(FSHCandidateBarView *)barView didSelectCandidateAtIndex:(NSUInteger)index {
+    if ([self reconcileCompositionDocument]) {
+        return;
+    }
     if ([self blockSensitiveInputIfNeeded]) {
         return;
     }
@@ -604,6 +745,9 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 #pragma mark - Helpers
 
 - (void)appendToRawBuffer:(NSString *)text {
+    if (self.rawBuffer.length == 0) {
+        self.compositionDocumentIdentifier = self.textDocumentProxy.documentIdentifier;
+    }
     [self.rawBuffer appendString:text];
     [self updateReverseStateIfNeeded];
     [self refreshCandidatesAndUI];
@@ -618,10 +762,28 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 
 - (void)clearComposingState {
     [self.rawBuffer setString:@""];
+    self.compositionDocumentIdentifier = nil;
     self.candidates = @[];
     self.exactCount = 0;
     self.reverseState = FSHReverseStateNone;
     [self refreshCandidatesAndUI];
+}
+
+- (BOOL)reconcileCompositionDocument {
+    if (self.rawBuffer.length == 0 && self.reverseState != FSHReverseStateActive) {
+        return NO;
+    }
+    NSUUID *current = self.textDocumentProxy.documentIdentifier;
+    if (!self.compositionDocumentIdentifier) {
+        self.compositionDocumentIdentifier = current;
+        return NO;
+    }
+    if (![self.compositionDocumentIdentifier isEqual:current]) {
+        self.shortestHint = @"";
+        [self clearComposingState];
+        return YES;
+    }
+    return NO;
 }
 
 - (void)clearHint {
@@ -772,6 +934,7 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
     BOOL sensitive = [self isSensitiveField];
     if (sensitive && !self.isInSensitiveField) {
         self.isInSensitiveField = YES;
+        [self endLiteralFallback];
         [self stopDeleteRepeat];
         self.deleteLockout = NO;
         [self clearComposingState];
@@ -812,6 +975,7 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
         return NO;
     }
     [self stopDeleteRepeat];
+    [self endLiteralFallback];
     self.deleteLockout = NO;
     [self clearComposingState];
     if (!self.isInSensitiveField) {
