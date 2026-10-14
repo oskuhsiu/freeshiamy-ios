@@ -33,6 +33,13 @@ touch Config/Local.xcconfig
 xcodebuild -list -project freeshiamy-ios.xcodeproj > "$ARTIFACTS/project-list.log" 2>&1
 xcodebuild -help > "$ARTIFACTS/xcodebuild-help.log" 2>&1
 xcrun simctl help ui > "$ARTIFACTS/simctl-ui-help.log" 2>&1 || true
+get_app_container_help_result=0
+xcrun simctl help get_app_container > "$ARTIFACTS/simctl-get-app-container-help.log" 2>&1 \
+    || get_app_container_help_result=$?
+if [[ "$get_app_container_help_result" != 0 ]]; then
+    echo "diagnostic_missing=public get_app_container help status=$get_app_container_help_result" \
+        >> "$ARTIFACTS/simctl-get-app-container-help.log"
+fi
 xcrun simctl list -j devicetypes > "$ARTIFACTS/simctl-device-types.json" 2>&1
 DEVICE_TYPE="${FSH_SIM_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPhone-16}"
 case "$DEVICE_TYPE" in
@@ -205,10 +212,91 @@ if grep -Eq "FreeShiamyKeyboard lifecycle bundle=osku.me.freeshiamyios.keyboard 
     process_observation=observed-no-full-access
     process_result=0
 fi
+
+# Read-only identity snapshots diagnose the handoff between independently
+# selected installed stages. Missing diagnostics never substitute for a pass.
+record_bundle_identity() {
+    local label="$1" bundle="$2" plist="$2/Info.plist" key value executable status
+    printf '\n[%s]\nbundle_path=%s\n' "$label" "$bundle"
+    if [[ ! -f "$plist" ]]; then
+        printf 'diagnostic_missing=%s Info.plist absent\n' "$label"
+        return 0
+    fi
+    for key in CFBundleIdentifier CFBundleVersion CFBundleExecutable; do
+        status=0
+        value=$(/usr/libexec/PlistBuddy -c "Print :$key" "$plist" 2>&1) || status=$?
+        printf '%s=%s\n' "$key" "$value"
+        if [[ "$status" != 0 || -z "$value" ]]; then
+            printf 'diagnostic_missing=%s %s read status=%s\n' "$label" "$key" "$status"
+        fi
+    done
+    status=0
+    shasum -a 256 "$plist" || status=$?
+    if [[ "$status" != 0 ]]; then printf 'diagnostic_missing=%s Info.plist SHA256 status=%s\n' "$label" "$status"; fi
+    status=0
+    executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist" 2>&1) || status=$?
+    if [[ "$status" == 0 && -n "$executable" && -f "$bundle/$executable" ]]; then
+        status=0
+        shasum -a 256 "$bundle/$executable" || status=$?
+        if [[ "$status" != 0 ]]; then printf 'diagnostic_missing=%s executable SHA256 status=%s\n' "$label" "$status"; fi
+    else
+        printf 'diagnostic_missing=%s executable absent or identity unreadable\n' "$label"
+    fi
+}
+
+record_app_identity() {
+    local label="$1" app_bundle="$TEMP_ROOT/freeshiamy-derived-data/Build/Products/Debug-iphonesimulator/freeshiamy-ios.app"
+    local container status=0
+    {
+        printf 'Source SHA: %s\nOwned simulator: %s\nSnapshot: %s\n' "$(git rev-parse HEAD)" "$DEVICE_ID" "$label"
+        date -u +'%Y-%m-%d %H:%M:%S UTC'
+        record_bundle_identity 'built containing app' "$app_bundle"
+        record_bundle_identity 'built keyboard extension' "$app_bundle/PlugIns/FreeShiamyKeyboard.appex"
+        if [[ "$get_app_container_help_result" != 0 ]]; then
+            echo 'diagnostic_missing=public simctl get_app_container help unavailable; see simctl-get-app-container-help.log'
+        else
+            xcrun simctl get_app_container "$DEVICE_ID" osku.me.freeshiamyios app \
+                > "$ARTIFACTS/$label-installed-app-container.log" 2>&1 || status=$?
+            printf 'get_app_container status: %s\n' "$status"
+            cat "$ARTIFACTS/$label-installed-app-container.log"
+            if [[ "$status" == 0 ]]; then
+                container=$(cat "$ARTIFACTS/$label-installed-app-container.log")
+                if [[ -d "$container" ]]; then
+                    record_bundle_identity 'installed containing app' "$container"
+                    record_bundle_identity 'installed keyboard extension' "$container/PlugIns/FreeShiamyKeyboard.appex"
+                else
+                    echo 'diagnostic_missing=public app-container result is not a readable installed bundle directory'
+                fi
+            else
+                echo 'diagnostic_missing=public get_app_container failed; supported help retained, no alternate flags attempted'
+            fi
+        fi
+    } > "$ARTIFACTS/$label-app-identity.log" 2>&1
+}
+
+collect_ax_service_log() {
+    local label="$1" predicate="$2" status=0 records
+    xcrun simctl spawn "$DEVICE_ID" log show \
+        --start "$(cat "$ARTIFACTS/installed-ax-stage-start.txt")" \
+        --style compact --info --debug --predicate "$predicate" \
+        > "$ARTIFACTS/$label.log" 2>&1 || status=$?
+    records=$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}' "$ARTIFACTS/$label.log" || true)
+    printf '\ndiagnostic_command_status=%s matching_event_records=%s\n' "$status" "$records" \
+        >> "$ARTIFACTS/$label.log"
+    if [[ "$status" != 0 ]]; then
+        printf '\ndiagnostic_missing=%s public log show status=%s\n' "$label" "$status" \
+            >> "$ARTIFACTS/$label.log"
+    elif [[ "$records" == 0 ]]; then
+        printf '\ndiagnostic_missing=%s no matching event records\n' "$label" \
+            >> "$ARTIFACTS/$label.log"
+    fi
+}
+
 ax_content_size_result=skipped
 ax_result=skipped
 ax_process_result=skipped
 if [[ "$ui_result" == 0 && "$host_geometry_result" == 0 && "$process_result" == 0 ]]; then
+    record_app_identity installed-default-to-ax-before
     ax_content_size_result=0
     echo '[stage] set public simulator content size to Accessibility XXXL' | tee "$ARTIFACTS/installed-ax-content-size.log"
     if ! xcrun simctl ui "$DEVICE_ID" content_size accessibility-extra-extra-extra-large \
@@ -234,6 +322,15 @@ if [[ "$ui_result" == 0 && "$host_geometry_result" == 0 && "$process_result" == 
                 | tee "$ARTIFACTS/installed-adaptive-ax-selection.log"
             ax_result=1
         fi
+        # Preserve identity and the entire owned-device handoff timeline even
+        # when AX fails before the extension's viewDidAppear lifecycle marker.
+        record_app_identity installed-ax-after
+        collect_ax_service_log installed-ax-host-process 'process == "freeshiamy-ios"'
+        collect_ax_service_log installed-ax-extension-full-process 'process == "FreeShiamyKeyboard"'
+        collect_ax_service_log installed-ax-service-launch \
+            'subsystem CONTAINS[c] "PlugInKit" OR subsystem CONTAINS[c] "ExtensionKit" OR subsystem CONTAINS[c] "RunningBoard" OR subsystem CONTAINS[c] "LaunchServices" OR process == "pkd" OR process == "runningboardd" OR process == "lsd" OR process == "launchd" OR eventMessage CONTAINS "osku.me.freeshiamyios.keyboard"'
+        collect_ax_service_log installed-ax-install-registration \
+            'process == "installd" OR subsystem CONTAINS[c] "MobileInstallation" OR ((eventMessage CONTAINS "osku.me.freeshiamyios") AND (eventMessage CONTAINS[c] "install" OR eventMessage CONTAINS[c] "register" OR eventMessage CONTAINS[c] "registration"))'
         xcrun simctl spawn "$DEVICE_ID" log show \
             --start "$(cat "$ARTIFACTS/installed-ax-stage-start.txt")" \
             --style compact --info --debug \
