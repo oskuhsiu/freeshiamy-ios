@@ -571,11 +571,15 @@
     }
     XCTAssertEqual(indexedEntries, (NSUInteger)26286); // 26,288 corpus rows, two exact duplicates.
 
+    NSDictionary<NSString *, NSNumber *> *expectedPrefixCounts = @{@",": @663, @".": @20};
+    NSDictionary<NSString *, NSString *> *expectedExactValues = @{@",": @"，", @".": @"。"};
     for (NSString *code in @[@",", @"."]) {
         NSUInteger exactCount = 0;
         NSArray<FSHCandidate *> *matches = [engine prefixCandidatesForCode:code exactCount:&exactCount];
         XCTAssertEqual(exactCount, (NSUInteger)1);
-        XCTAssertEqual(matches.count, (NSUInteger)1);
+        XCTAssertEqual(matches.count, expectedPrefixCounts[code].unsignedIntegerValue);
+        XCTAssertEqualObjects(matches.firstObject.code, code);
+        XCTAssertEqualObjects(matches.firstObject.value, expectedExactValues[code]);
     }
     for (NSString *code in @[@"ci", @"cj", @"cjv"]) {
         NSArray<FSHCandidate *> *matches = [engine prefixCandidatesForCode:code exactCount:NULL];
