@@ -26,6 +26,7 @@ if [[ "$(uname -m)" != "arm64" ]]; then
     exit 1
 fi
 python3 ci/test-installed-geometry-parser.py > "$ARTIFACTS/geometry-parser-selftest.log" 2>&1
+python3 ci/check-installed-ax-process.py --self-test > "$ARTIFACTS/installed-ax-parser-selftest.log" 2>&1
 
 # The repository intentionally does not track a developer's signing overrides.
 touch Config/Local.xcconfig
@@ -149,7 +150,15 @@ fi
 
 ui_result=0
 date -u +'%Y-%m-%d %H:%M:%S' > "$ARTIFACTS/installed-stage-start.txt"
-run_stage installed-extension InstalledKeyboardSmoke 300 360 || ui_result=$?
+run_stage installed-extension InstalledKeyboardSmoke 300 360 \
+    '-only-testing:InstalledKeyboardUITests/InstalledKeyboardUITests/testInstalledKeyboardWithFullAccessOff' \
+    || ui_result=$?
+if [[ "$ui_result" == 0 ]] && \
+   [[ "$(grep -Fc "Test Case '-[InstalledKeyboardUITests testInstalledKeyboardWithFullAccessOff]' passed" "$ARTIFACTS/installed-extension-xcodebuild.log" || true)" != 1 ]]; then
+    echo '[stage] Default installed smoke did not complete exactly one selected test' \
+        | tee "$ARTIFACTS/installed-extension-selection.log"
+    ui_result=1
+fi
 # Collect extension process diagnostics even when the first UI boundary fails.
 xcrun simctl spawn "$DEVICE_ID" log show --last 30m --style compact --info --debug \
     --predicate 'process == "FreeShiamyKeyboard" OR eventMessage CONTAINS "FreeShiamyKeyboard lifecycle"' \
@@ -170,9 +179,52 @@ if grep -Eq "FreeShiamyKeyboard lifecycle bundle=osku.me.freeshiamyios.keyboard 
     process_observation=observed-no-full-access
     process_result=0
 fi
+ax_content_size_result=skipped
+ax_result=skipped
+ax_process_result=skipped
+if [[ "$ui_result" == 0 && "$host_geometry_result" == 0 && "$process_result" == 0 ]]; then
+    ax_content_size_result=0
+    echo '[stage] set public simulator content size to Accessibility XXXL' | tee "$ARTIFACTS/installed-ax-content-size.log"
+    if ! xcrun simctl ui "$DEVICE_ID" content_size accessibility-extra-extra-extra-large \
+        >> "$ARTIFACTS/installed-ax-content-size.log" 2>&1; then
+        ax_content_size_result=1
+    fi
+    if ! xcrun simctl ui "$DEVICE_ID" content_size \
+        > "$ARTIFACTS/installed-ax-content-size-readback.log" 2>&1; then
+        ax_content_size_result=1
+    fi
+    if ! grep -qx 'accessibility-extra-extra-extra-large' "$ARTIFACTS/installed-ax-content-size-readback.log"; then
+        ax_content_size_result=1
+    fi
+    if [[ "$ax_content_size_result" == 0 ]]; then
+        ax_result=0
+        date -u +'%Y-%m-%d %H:%M:%S' > "$ARTIFACTS/installed-ax-stage-start.txt"
+        run_stage installed-adaptive-ax InstalledKeyboardSmoke 300 360 \
+            '-only-testing:InstalledKeyboardUITests/InstalledKeyboardUITests/testInstalledAccessibilityMoreAndOffscreenCandidate' \
+            || ax_result=$?
+        if [[ "$ax_result" == 0 ]] && \
+           [[ "$(grep -Fc "Test Case '-[InstalledKeyboardUITests testInstalledAccessibilityMoreAndOffscreenCandidate]' passed" "$ARTIFACTS/installed-adaptive-ax-xcodebuild.log" || true)" != 1 ]]; then
+            echo '[stage] AX installed smoke did not complete exactly one selected test' \
+                | tee "$ARTIFACTS/installed-adaptive-ax-selection.log"
+            ax_result=1
+        fi
+        xcrun simctl spawn "$DEVICE_ID" log show \
+            --start "$(cat "$ARTIFACTS/installed-ax-stage-start.txt")" \
+            --style compact --info --debug \
+            --predicate 'process == "FreeShiamyKeyboard"' \
+            > "$ARTIFACTS/installed-ax-extension-process.log" 2>&1 || true
+        ax_process_result=0
+        python3 ci/check-installed-ax-process.py "$ARTIFACTS/installed-ax-extension-process.log" \
+            > "$ARTIFACTS/installed-ax-process-check.log" 2>&1 || ax_process_result=$?
+    fi
+else
+    echo '[stage] Installed AX/More test skipped because default installed smoke or evidence failed' \
+        | tee "$ARTIFACTS/installed-ax-skipped.log"
+fi
 # Missing unified-log evidence blocks a completed installed-extension claim for
 # this first run. Classify that as inconclusive integration evidence, not a
 # demonstrated keyboard product failure; retained UI evidence diagnoses it.
-printf 'hosted-focused=%s\nhosted-full=%s\nplist=%s\ninstalled-extension=%s\ninstalled-host-geometry=%s\nprocess-log=%s\n' \
-    "$focused_result" "$hosted_result" "$plist_result" "$ui_result" "$host_geometry_result" "$process_observation" | tee "$ARTIFACTS/stage-status.txt"
-if [[ "$focused_result" != 0 || "$hosted_result" != 0 || "$plist_result" != 0 || "$ui_result" != 0 || "$host_geometry_result" != 0 || "$process_result" != 0 ]]; then exit 1; fi
+printf 'hosted-focused=%s\nhosted-full=%s\nplist=%s\ninstalled-extension=%s\ninstalled-host-geometry=%s\nprocess-log=%s\ninstalled-ax-content-size=%s\ninstalled-ax=%s\ninstalled-ax-process=%s\n' \
+    "$focused_result" "$hosted_result" "$plist_result" "$ui_result" "$host_geometry_result" "$process_observation" \
+    "$ax_content_size_result" "$ax_result" "$ax_process_result" | tee "$ARTIFACTS/stage-status.txt"
+if [[ "$focused_result" != 0 || "$hosted_result" != 0 || "$plist_result" != 0 || "$ui_result" != 0 || "$host_geometry_result" != 0 || "$process_result" != 0 || "$ax_content_size_result" != 0 || "$ax_result" != 0 || "$ax_process_result" != 0 ]]; then exit 1; fi

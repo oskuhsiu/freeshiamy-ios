@@ -1136,6 +1136,8 @@ static NSString *FSHFixtureSuiteName;
     [bar updateRawBuffer:@"ci" candidates:[self candidatesWithCount:2 code:@"ci"]
              exactCount:2 inlineLimit:10 moreLimit:50 hintText:nil];
     XCTAssertEqualObjects([[bar valueForKey:@"rawButton"] accessibilityIdentifier], @"candidate.raw");
+    XCTAssertEqualObjects([[bar valueForKey:@"moreButton"] accessibilityIdentifier], @"candidate.more");
+    XCTAssertEqualObjects([[bar valueForKey:@"moreScrollView"] accessibilityIdentifier], @"candidate.expandedList");
     UIStackView *stack = [bar valueForKey:@"candidateStack"];
     XCTAssertEqualObjects(stack.arrangedSubviews.firstObject.accessibilityIdentifier, @"candidate.inline.0");
 
@@ -1143,6 +1145,7 @@ static NSString *FSHFixtureSuiteName;
     [host loadViewIfNeeded];
     XCTAssertEqualObjects([[host valueForKey:@"singleLineField"] accessibilityIdentifier], @"smoke.singleLine");
     XCTAssertEqualObjects([[host valueForKey:@"multiLineView"] accessibilityIdentifier], @"smoke.multiLine");
+    XCTAssertEqualObjects([[host valueForKey:@"scrollView"] accessibilityIdentifier], @"host.testPanel.scroll");
 }
 
 - (void)testShiftStatesHaveDistinctLabelsAndKeepLetterGeometry {

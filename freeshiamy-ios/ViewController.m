@@ -32,6 +32,7 @@
     [FSHSettings registerDefaults];
 
     self.scrollView = [[UIScrollView alloc] init];
+    self.scrollView.accessibilityIdentifier = @"host.testPanel.scroll";
     self.scrollView.translatesAutoresizingMaskIntoConstraints = NO;
     self.scrollView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
     [self.view addSubview:self.scrollView];

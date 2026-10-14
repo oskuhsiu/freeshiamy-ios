@@ -491,4 +491,186 @@
     [self capture:@"Installed-extension smoke complete" application:host];
 }
 
+- (void)testInstalledAccessibilityMoreAndOffscreenCandidate {
+    XCUIApplication *host = [[XCUIApplication alloc] initWithBundleIdentifier:@"osku.me.freeshiamyios"];
+    NSString *runID = [NSUUID UUID].UUIDString;
+    host.launchEnvironment = @{@"FSH_INSTALLED_SMOKE_RUN_ID": runID};
+    [host launch];
+    XCTAttachment *runMarker = [XCTAttachment attachmentWithString:runID];
+    runMarker.name = @"Installed AX More host run ID";
+    runMarker.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:runMarker];
+    [self capture:@"AX host launched at public content size" application:host];
+
+    XCUIElementQuery *fields = [host.textFields matchingIdentifier:@"smoke.singleLine"];
+    XCUIElement *single = fields.firstMatch;
+    XCUIElementQuery *scrolls = [host.scrollViews matchingIdentifier:@"host.testPanel.scroll"];
+    XCUIElement *hostScroll = scrolls.firstMatch;
+    BOOL focused = NO;
+    for (NSUInteger attempt = 0; attempt <= 5; attempt++) {
+        if (fields.count == 1 && [self isOnScreen:single application:host] && single.isHittable) {
+            [single tap];
+            focused = YES;
+            break;
+        }
+        if (attempt < 5 && scrolls.count == 1 && [self isOnScreen:hostScroll application:host] && hostScroll.isHittable) {
+            [hostScroll swipeUp];
+        }
+    }
+    if (!focused) {
+        [self capture:@"AX single-line focus — first boundary failure" application:host];
+        XCTFail(@"Expected one visible single-line field and containing host scroll view; found %lu fields, %lu scroll views",
+                (unsigned long)fields.count, (unsigned long)scrolls.count);
+        return;
+    }
+    [self capture:@"AX host field focused" application:host];
+
+    XCUIElement *letter = [host.buttons matchingIdentifier:@"key.letter.c"].firstMatch;
+    if (![letter waitForExistenceWithTimeout:5.0]) {
+        XCUIElementQuery *switchers = [host.buttons matchingPredicate:
+            [NSPredicate predicateWithFormat:@"label == %@ OR label == %@", @"Next keyboard", @"Globe"]];
+        XCUIElement *switcher = [self requireUnique:switchers stage:@"AX system keyboard switcher" application:host];
+        if (!switcher) return;
+        [switcher pressForDuration:1.2];
+        [self capture:@"AX real system input-mode picker" application:host];
+        XCUIElement *choice = [self observedInputSwitcherCell:@"FreeShiamy — freeshiamy-ios, Chinese"
+                                                       stage:@"AX FreeShiamy picker choice" application:host];
+        if (!choice) return;
+        [choice tap];
+    }
+    if (![self keyboardControl:@"key.letter.c" application:host]) return;
+    XCUIElement *dictionaryStatus = [host.staticTexts matchingIdentifier:@"candidate.status"].firstMatch;
+    XCTNSPredicateExpectation *loaded = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:[NSPredicate predicateWithFormat:@"exists == NO"] object:dictionaryStatus];
+    if ([XCTWaiter waitForExpectations:@[loaded] timeout:30.0] != XCTWaiterResultCompleted) {
+        [self capture:@"AX dictionary load — first boundary failure" application:host];
+        XCTFail(@"Dictionary did not become ready in the installed extension");
+        return;
+    }
+    [self capture:@"AX installed extension ready" application:host];
+
+    if (![self tapKeyboardControl:@"key.letter.c" application:host]) return;
+    XCUIElement *raw = [self keyboardControl:@"candidate.raw" application:host];
+    if (!raw || ![raw.label isEqualToString:@"c"]) {
+        [self capture:@"AX raw c — first boundary failure" application:host];
+        XCTFail(@"Expected raw c before opening More, observed %@", raw.label);
+        return;
+    }
+    XCUIElement *more = [self keyboardControl:@"candidate.more" application:host];
+    if (!more || ![more.value isEqual:@"已收合"]) {
+        [self capture:@"AX More collapsed — first boundary failure" application:host];
+        XCTFail(@"Expected collapsed More before opening, observed %@", more.value);
+        return;
+    }
+    [more tap];
+    more = [self keyboardControl:@"candidate.more" application:host];
+    XCUIElement *first = [self keyboardControl:@"candidate.expanded.0" application:host];
+    if (!more || ![more.value isEqual:@"已展開"] || !first || ![first.label isEqualToString:@"七"]) {
+        [self capture:@"AX More opened — first boundary failure" application:host];
+        XCTFail(@"Expected expanded More with first candidate 七; More %@, first %@", more.value, first.label);
+        return;
+    }
+    [self capture:@"AX More expanded before scroll" application:host];
+
+    XCUIElementQuery *moreScrolls = [host.scrollViews matchingIdentifier:@"candidate.expandedList"];
+    XCUIElement *moreScroll = moreScrolls.firstMatch;
+    XCUIElementQuery *targets = [host.buttons matchingIdentifier:@"candidate.expanded.79"];
+    XCUIElement *target = targets.firstMatch;
+    NSUInteger initialTargetCount = targets.count;
+    BOOL targetInitiallyVisible = moreScrolls.count == 1 && initialTargetCount == 1 &&
+        !CGRectIsEmpty(target.frame) && CGRectIntersectsRect(target.frame, moreScroll.frame);
+    if (moreScrolls.count != 1 || ![self isOnScreen:moreScroll application:host] ||
+        !moreScroll.isHittable || initialTargetCount > 1 ||
+        (initialTargetCount == 1 && ![target.label isEqualToString:@"蟻"]) ||
+        targetInitiallyVisible) {
+        [self capture:@"AX offscreen candidate precondition — first boundary failure" application:host];
+        XCTFail(@"Expected candidate 79 蟻 outside one visible More viewport or absent from its initial AX snapshot; scroll %@ count %lu target %@ label %@",
+                moreScrolls.count == 1 ? NSStringFromCGRect(moreScroll.frame) : @"not exposed",
+                (unsigned long)initialTargetCount,
+                initialTargetCount == 1 ? NSStringFromCGRect(target.frame) : @"not exposed",
+                initialTargetCount == 1 ? target.label : @"not exposed");
+        return;
+    }
+    [self capture:@"AX candidate 79 initially offscreen" application:host];
+    BOOL reached = NO;
+    for (NSUInteger swipe = 0; swipe < 16; swipe++) {
+        CGRect viewport = moreScroll.frame;
+        NSUInteger count = targets.count;
+        if (count > 1) break;
+        if (count == 1) {
+            CGRect item = target.frame;
+            if (![target.label isEqualToString:@"蟻"]) break;
+            if (!CGRectIsEmpty(viewport) && !CGRectIsEmpty(item) &&
+                CGRectContainsRect(viewport, item) && CGRectContainsRect(host.frame, item) &&
+                target.isHittable) {
+                reached = YES;
+                break;
+            }
+            if (!CGRectIsEmpty(item) && CGRectGetMinY(item) < CGRectGetMinY(viewport)) {
+                [moreScroll swipeDown];
+                continue;
+            }
+        }
+        [moreScroll swipeUp];
+    }
+    if (!reached) {
+        [self capture:@"AX offscreen candidate scroll — first boundary failure" application:host];
+        XCTFail(@"Candidate 79 did not become fully visible and hittable after bounded More-viewport swipes; scroll %@ count %lu target %@",
+                NSStringFromCGRect(moreScroll.frame), (unsigned long)targets.count,
+                targets.count == 1 ? NSStringFromCGRect(target.frame) : @"not exposed");
+        return;
+    }
+    [self capture:@"AX offscreen candidate 79 visible after scroll" application:host];
+    [target tap];
+    if (![self expectValue:@"蟻" of:single stage:@"AX offscreen candidate committed" application:host]) return;
+    if (![self keyboardControl:@"key.letter.c" application:host]) return;
+
+    if (![self tapKeyboardControl:@"key.letter.c" application:host]) return;
+    raw = [self keyboardControl:@"candidate.raw" application:host];
+    if (!raw || ![raw.label isEqualToString:@"c"]) {
+        [self capture:@"AX second raw c — first boundary failure" application:host];
+        XCTFail(@"Expected second raw c, observed %@", raw.label);
+        return;
+    }
+    more = [self keyboardControl:@"candidate.more" application:host];
+    if (!more) return;
+    [more tap];
+    [self capture:@"AX More reopened" application:host];
+    more = [self keyboardControl:@"candidate.more" application:host];
+    if (!more || ![more.value isEqual:@"已展開"]) {
+        [self capture:@"AX More reopen — first boundary failure" application:host];
+        XCTFail(@"Expected expanded More after reopening, observed %@", more.value);
+        return;
+    }
+    [more tap];
+    [self capture:@"AX More collapsed again" application:host];
+    raw = [self keyboardControl:@"candidate.raw" application:host];
+    more = [self keyboardControl:@"candidate.more" application:host];
+    if (!raw || ![raw.label isEqualToString:@"c"] || !more || ![more.value isEqual:@"已收合"]) {
+        [self capture:@"AX collapse composition — first boundary failure" application:host];
+        XCTFail(@"More collapse lost raw composition c or collapsed state");
+        return;
+    }
+    if (![self keyboardControl:@"key.letter.c" application:host]) return;
+    XCUIElement *inlineFirst = [self keyboardControl:@"candidate.inline.0" application:host];
+    if (!inlineFirst || ![inlineFirst.label isEqualToString:@"七"]) {
+        [self capture:@"AX inline candidate — first boundary failure" application:host];
+        XCTFail(@"Expected inline 七 after collapse, observed %@", inlineFirst.label);
+        return;
+    }
+    [inlineFirst tap];
+    if (![self expectValue:@"蟻七" of:single stage:@"AX collapsed inline candidate committed" application:host]) return;
+    if (![self tapKeyboardControl:@"key.delete" application:host]) return;
+    if (![self expectValue:@"蟻" of:single stage:@"AX Delete after More collapse" application:host]) return;
+    XCUIElementQuery *multilineFields = [host.textViews matchingIdentifier:@"smoke.multiLine"];
+    XCUIElement *multi = multilineFields.firstMatch;
+    if (multilineFields.count != 1 || ![multi.value isEqual:@""]) {
+        [self capture:@"AX multiline preservation — first boundary failure" application:host];
+        XCTFail(@"Expected one untouched empty multiline field; found %lu, value %@",
+                (unsigned long)multilineFields.count, multilineFields.count == 1 ? multi.value : @"absent");
+        return;
+    }
+    [self capture:@"AX installed More test complete" application:host];
+}
+
 @end

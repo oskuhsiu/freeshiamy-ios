@@ -334,6 +334,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     self.moreButton.titleLabel.font = [self candidateFont];
     [self.moreButton setTitle:@"⋯" forState:UIControlStateNormal];
     self.moreButton.accessibilityLabel = @"更多候選字";
+    self.moreButton.accessibilityIdentifier = @"candidate.more";
     self.moreButton.accessibilityValue = @"已收合";
     self.moreButton.accessibilityHint = @"點兩下展開候選字";
     [self.moreButton addTarget:self action:@selector(handleMoreTap) forControlEvents:UIControlEventTouchUpInside];
@@ -355,6 +356,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     [self addSubview:self.moreContainer];
 
     self.moreScrollView = [[UIScrollView alloc] init];
+    self.moreScrollView.accessibilityIdentifier = @"candidate.expandedList";
     self.moreScrollView.translatesAutoresizingMaskIntoConstraints = NO;
     self.moreScrollView.showsVerticalScrollIndicator = YES;
     [self.moreContainer addSubview:self.moreScrollView];
