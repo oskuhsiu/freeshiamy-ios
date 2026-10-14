@@ -29,6 +29,17 @@
 }
 @end
 
+@interface FSHFixtureEngine : FSHShiamyEngine
+@property (nonatomic, copy) NSString *mainPath;
+@property (nonatomic, copy) NSString *spellPath;
+@end
+
+@implementation FSHFixtureEngine
+- (NSString *)pathForResource:(NSString *)name type:(NSString *)type inBundle:(NSBundle *)bundle {
+    return [name isEqualToString:@"freeshiamy"] ? self.mainPath : self.spellPath;
+}
+@end
+
 @interface FSHFakeDocumentProxy : NSObject
 @property (nonatomic, strong) NSMutableString *text;
 @property (nonatomic, assign, getter=isSecureTextEntry) BOOL secureTextEntry;
@@ -330,6 +341,52 @@
         XCTAssertEqual([candidate.value rangeOfString:@"non official"].location, NSNotFound);
     }
     XCTAssertTrue(foundWrist);
+}
+
+- (void)testEngineRequiresBothReadableNonemptyDictionaries {
+    NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID UUID].UUIDString];
+    NSError *error = nil;
+    XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:directory
+                                             withIntermediateDirectories:YES attributes:nil error:&error]);
+    NSString *mainPath = [directory stringByAppendingPathComponent:@"main.cin"];
+    NSString *spellPath = [directory stringByAppendingPathComponent:@"spell.cin"];
+    XCTAssertTrue([@"a 中\n" writeToFile:mainPath atomically:YES encoding:NSUTF8StringEncoding error:&error]);
+    XCTAssertTrue([@"z 中\n" writeToFile:spellPath atomically:YES encoding:NSUTF8StringEncoding error:&error]);
+
+    FSHFixtureEngine *engine = [[FSHFixtureEngine alloc] init];
+    engine.mainPath = mainPath;
+    engine.spellPath = spellPath;
+    XCTAssertTrue([engine loadFromBundle:[NSBundle mainBundle] error:&error]);
+    XCTAssertTrue(engine.ready);
+    XCTAssertEqual([engine prefixCandidatesForCode:@"a" exactCount:NULL].count, (NSUInteger)1);
+
+    engine.spellPath = nil;
+    error = nil;
+    XCTAssertFalse([engine loadFromBundle:[NSBundle mainBundle] error:&error]);
+    XCTAssertNotNil(error);
+    XCTAssertFalse(engine.ready);
+    XCTAssertEqual([engine prefixCandidatesForCode:@"a" exactCount:NULL].count, (NSUInteger)0);
+
+    engine.spellPath = [directory stringByAppendingPathComponent:@"missing.cin"];
+    error = nil;
+    XCTAssertFalse([engine loadFromBundle:[NSBundle mainBundle] error:&error]);
+    XCTAssertNotNil(error);
+    XCTAssertFalse(engine.ready);
+
+    engine.spellPath = spellPath;
+    XCTAssertTrue([@"" writeToFile:mainPath atomically:YES encoding:NSUTF8StringEncoding error:&error]);
+    error = nil;
+    XCTAssertFalse([engine loadFromBundle:[NSBundle mainBundle] error:&error]);
+    XCTAssertNotNil(error);
+    XCTAssertFalse(engine.ready);
+
+    XCTAssertTrue([@"a 中\n" writeToFile:mainPath atomically:YES encoding:NSUTF8StringEncoding error:&error]);
+    XCTAssertTrue([@"" writeToFile:spellPath atomically:YES encoding:NSUTF8StringEncoding error:&error]);
+    error = nil;
+    XCTAssertFalse([engine loadFromBundle:[NSBundle mainBundle] error:&error]);
+    XCTAssertNotNil(error);
+    XCTAssertFalse(engine.ready);
+    [[NSFileManager defaultManager] removeItemAtPath:directory error:nil];
 }
 
 @end

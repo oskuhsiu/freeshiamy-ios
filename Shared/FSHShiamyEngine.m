@@ -15,23 +15,40 @@
 @implementation FSHShiamyEngine
 
 - (BOOL)loadFromBundle:(NSBundle *)bundle error:(NSError **)error {
+    self.ready = NO;
+    self.firstCharIndex = nil;
+    self.shortestCodeByValue = nil;
+    self.spellByValue = nil;
+    self.valuesBySpell = nil;
+
     NSString *cinPath = [self pathForResource:@"freeshiamy" type:@"cin" inBundle:bundle];
     NSString *spellPath = [self pathForResource:@"cht_spells" type:@"cin" inBundle:bundle];
     if (!cinPath || !spellPath) {
         if (error) {
             *error = [NSError errorWithDomain:@"FSHShiamyEngine" code:2 userInfo:@{NSLocalizedDescriptionKey: @"Missing cin resources"}];
         }
-        self.ready = NO;
         return NO;
     }
 
     NSError *parseError = nil;
     NSArray<FSHCandidate *> *cinEntries = [FSHCinParser parseCinAtPath:cinPath error:&parseError];
-    if (parseError && error) {
-        *error = parseError;
+    if (parseError || cinEntries.count == 0) {
+        if (error) {
+            *error = parseError ?: [NSError errorWithDomain:@"FSHShiamyEngine" code:3
+                                                 userInfo:@{NSLocalizedDescriptionKey: @"Main cin dictionary is empty"}];
+        }
+        return NO;
     }
 
-    NSArray<FSHCandidate *> *spellEntries = [FSHCinParser parseCinAtPath:spellPath error:nil];
+    parseError = nil;
+    NSArray<FSHCandidate *> *spellEntries = [FSHCinParser parseCinAtPath:spellPath error:&parseError];
+    if (parseError || spellEntries.count == 0) {
+        if (error) {
+            *error = parseError ?: [NSError errorWithDomain:@"FSHShiamyEngine" code:4
+                                                 userInfo:@{NSLocalizedDescriptionKey: @"Spelling cin dictionary is empty"}];
+        }
+        return NO;
+    }
 
     [self buildIndexesWithCinEntries:cinEntries spellEntries:spellEntries];
     self.ready = YES;
