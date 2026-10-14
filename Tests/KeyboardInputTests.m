@@ -254,6 +254,17 @@ static id FSHFixtureDefaults;
     return candidates;
 }
 
+- (UIView *)hostForCandidateBar:(FSHCandidateBarView *)bar width:(CGFloat)width height:(CGFloat)height {
+    UIView *host = [[UIView alloc] initWithFrame:CGRectMake(0.0, 0.0, width, height)];
+    [host addSubview:bar];
+    [NSLayoutConstraint activateConstraints:@[
+        [bar.leadingAnchor constraintEqualToAnchor:host.leadingAnchor],
+        [bar.trailingAnchor constraintEqualToAnchor:host.trailingAnchor],
+        [bar.topAnchor constraintEqualToAnchor:host.topAnchor],
+    ]];
+    return host;
+}
+
 - (void)waitForSeconds:(NSTimeInterval)seconds {
     XCTestExpectation *elapsed = [self expectationWithDescription:@"Timer elapsed"];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(seconds * NSEC_PER_SEC)),
@@ -694,10 +705,13 @@ static id FSHFixtureDefaults;
 
 - (void)testCandidateScrollResetsOnlyForSemanticQueryChanges {
     FSHCandidateBarView *bar = [[FSHCandidateBarView alloc] initWithFrame:CGRectMake(0.0, 0.0, 200.0, 217.5)];
+    UIView *host = [self hostForCandidateBar:bar width:200.0 height:217.5];
     NSArray<FSHCandidate *> *candidates = [self candidatesWithCount:30 code:@"a"];
     [bar updateRawBuffer:@"a" candidates:candidates exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
     [bar setExpanded:YES];
+    [host layoutIfNeeded];
     [bar layoutIfNeeded];
+    XCTAssertEqualWithAccuracy(CGRectGetWidth(bar.bounds), 200.0, 0.5);
     UIScrollView *inlineScroll = [bar valueForKey:@"scrollView"];
     UIScrollView *moreScroll = [bar valueForKey:@"moreScrollView"];
     XCTAssertGreaterThan(inlineScroll.contentSize.width - inlineScroll.bounds.size.width, 30.0);
@@ -710,8 +724,11 @@ static id FSHFixtureDefaults;
     [bar layoutIfNeeded];
     XCTAssertEqualWithAccuracy(inlineScroll.contentOffset.x, 30.0, 0.5);
     XCTAssertEqualWithAccuracy(moreScroll.contentOffset.y, 40.0, 0.5);
-    bar.frame = CGRectMake(0.0, 0.0, 220.0, 217.5);
+    host.frame = CGRectMake(0.0, 0.0, 220.0, 217.5);
+    [host setNeedsLayout];
+    [host layoutIfNeeded];
     [bar layoutIfNeeded];
+    XCTAssertEqualWithAccuracy(CGRectGetWidth(bar.bounds), 220.0, 0.5);
     XCTAssertEqualWithAccuracy(inlineScroll.contentOffset.x, 30.0, 0.5);
     XCTAssertEqualWithAccuracy(moreScroll.contentOffset.y, 40.0, 0.5);
 
@@ -744,12 +761,15 @@ static id FSHFixtureDefaults;
 
 - (void)testCandidateButtonsReuseViewsAndMapCurrentIndexesOnce {
     FSHCandidateBarView *bar = [[FSHCandidateBarView alloc] initWithFrame:CGRectMake(0.0, 0.0, 200.0, 217.5)];
+    UIView *host = [self hostForCandidateBar:bar width:200.0 height:217.5];
     FSHCandidateBarTestDelegate *delegate = [[FSHCandidateBarTestDelegate alloc] init];
     bar.delegate = delegate;
     [bar updateRawBuffer:@"a" candidates:[self candidatesWithCount:30 code:@"a"]
              exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
     [bar setExpanded:YES];
+    [host layoutIfNeeded];
     [bar layoutIfNeeded];
+    XCTAssertEqualWithAccuracy(CGRectGetWidth(bar.bounds), 200.0, 0.5);
     UIStackView *inlineStack = [bar valueForKey:@"candidateStack"];
     UIView *moreContent = [bar valueForKey:@"moreContentView"];
     NSArray<UIButton *> *initialInline = (NSArray<UIButton *> *)[inlineStack.arrangedSubviews copy];
@@ -801,10 +821,13 @@ static id FSHFixtureDefaults;
 
 - (void)testCandidatePoolsRespectChangingLimitsAndRefreshValues {
     FSHCandidateBarView *bar = [[FSHCandidateBarView alloc] initWithFrame:CGRectMake(0.0, 0.0, 200.0, 217.5)];
+    UIView *host = [self hostForCandidateBar:bar width:200.0 height:217.5];
     NSArray<FSHCandidate *> *candidates = [self candidatesWithCount:65 code:@"a"];
     [bar updateRawBuffer:@"a" candidates:candidates exactCount:20 inlineLimit:20 moreLimit:500 hintText:nil];
     [bar setExpanded:YES];
+    [host layoutIfNeeded];
     [bar layoutIfNeeded];
+    XCTAssertEqualWithAccuracy(CGRectGetWidth(bar.bounds), 200.0, 0.5);
     UIStackView *inlineStack = [bar valueForKey:@"candidateStack"];
     UIView *moreContent = [bar valueForKey:@"moreContentView"];
     UIScrollView *inlineScroll = [bar valueForKey:@"scrollView"];
@@ -838,7 +861,9 @@ static id FSHFixtureDefaults;
     XCTAssertEqualObjects(moreButton, initialMore[2]);
 
     inlineScroll.contentOffset = CGPointMake(100.0, 0.0);
-    bar.frame = CGRectMake(0.0, 0.0, 1200.0, 217.5);
+    host.frame = CGRectMake(0.0, 0.0, 1200.0, 217.5);
+    [host setNeedsLayout];
+    [host layoutIfNeeded];
     [bar setNeedsLayout];
     [bar layoutIfNeeded];
     CGFloat maximum = MAX(0.0, inlineScroll.contentSize.width - inlineScroll.bounds.size.width);
