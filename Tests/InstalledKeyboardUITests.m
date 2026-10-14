@@ -167,6 +167,32 @@
 }
 
 - (BOOL)tapSettingsRow:(NSString *)title inSettings:(XCUIApplication *)settings {
+    if ([title isEqualToString:@"General"]) {
+        // On iPad Settings can open with General already selected in the
+        // sidebar and its detail pane visible. In run 17, querying that
+        // selected button's hittability failed with an invalid activation
+        // point. Verify the detail state instead.
+        XCUIElementQuery *sidebar = [settings.buttons matchingIdentifier:@"com.apple.settings.general"];
+        if (sidebar.count == 1 && sidebar.firstMatch.isSelected) {
+            XCUIElementQuery *detailBars = [settings.navigationBars matchingIdentifier:@"General"];
+            XCUIElementQuery *keyboardRows = [settings.cells matchingIdentifier:@"Keyboard"];
+            XCUIElement *keyboardRow = keyboardRows.firstMatch;
+            NSPredicate *detailReady = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+                return sidebar.count == 1 && sidebar.firstMatch.isSelected &&
+                       detailBars.count == 1 && keyboardRows.count == 1 &&
+                       [self isOnScreen:keyboardRow application:settings];
+            }];
+            XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
+                initWithPredicate:detailReady object:settings];
+            if ([XCTWaiter waitForExpectations:@[expectation] timeout:5.0] != XCTWaiterResultCompleted) {
+                [self capture:@"Selected General detail — first boundary failure" application:settings];
+                XCTFail(@"General sidebar is selected without one visible General detail and Keyboard row");
+                return NO;
+            }
+            [self capture:@"General already open in Settings detail pane" application:settings];
+            return YES;
+        }
+    }
     if ([title isEqualToString:@"Keyboards"]) {
         // iOS 26.2 exposes this composite row as "Keyboards, 2". Its stable
         // identifier belongs to the actionable cell; the nested button is
