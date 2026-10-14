@@ -49,6 +49,7 @@ static const NSInteger FSHKeyCodeEnter = 10;
 @property (nonatomic, assign) BOOL shiftOn;
 @property (nonatomic, assign) BOOL capsLockOn;
 @property (nonatomic, assign) UIReturnKeyType returnKeyType;
+@property (nonatomic, assign, readonly) CGFloat minimumUsableHeight;
 
 - (void)reloadKeys;
 - (void)cancelActivePress;

@@ -4,6 +4,7 @@
 #import "FSHShiamyEngine.h"
 #import "FSHCandidate.h"
 #import "FSHSettings.h"
+#import "FSHKeyboardMetrics.h"
 #import <math.h>
 #import <unistd.h>
 
@@ -59,6 +60,18 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 @property (nonatomic, assign) BOOL hasHostConnection;
 @property (nonatomic, strong) NSLayoutConstraint *candidateBarHeightConstraint;
 @property (nonatomic, strong) NSLayoutConstraint *heightConstraint;
+@property (nonatomic, assign) BOOL compactCandidateSelection;
+#if DEBUG
+@property (nonatomic, assign) BOOL hasLoggedLayoutMetrics;
+@property (nonatomic, assign) CGSize lastLoggedRootSize;
+@property (nonatomic, assign) CGSize lastLoggedWindowSize;
+@property (nonatomic, assign) CGSize lastLoggedSceneSize;
+@property (nonatomic, assign) CGFloat lastLoggedPreferredHeight;
+@property (nonatomic, assign) NSInteger lastLoggedHeightPercent;
+@property (nonatomic, assign) BOOL lastLoggedExpanded;
+@property (nonatomic, assign) BOOL lastLoggedCompact;
+@property (nonatomic, copy) NSString *lastLoggedContentSizeCategory;
+#endif
 
 @end
 
@@ -93,7 +106,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     self.settingsHelpBanner.layer.cornerRadius = 6.0;
     self.settingsHelpBanner.layer.borderWidth = 1.0;
     self.settingsHelpBanner.layer.borderColor = [UIColor systemBlueColor].CGColor;
-    self.settingsHelpBanner.titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightMedium];
+    self.settingsHelpBanner.titleLabel.font = [self settingsHelpFont];
     self.settingsHelpBanner.titleLabel.adjustsFontSizeToFitWidth = YES;
     self.settingsHelpBanner.titleLabel.minimumScaleFactor = 0.8;
     [self.settingsHelpBanner setTitle:@"請開啟 FreeShiamy App → 設定  ×" forState:UIControlStateNormal];
@@ -146,10 +159,13 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     NSLog(@"FreeShiamyKeyboard lifecycle bundle=%@ pid=%d hasFullAccess=%@",
           NSBundle.mainBundle.bundleIdentifier, getpid(), self.hasFullAccess ? @"YES" : @"NO");
 #endif
+    [self updatePreferredContentSize];
 }
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
+    [self updatePreferredContentSize];
+    [self updateCandidateBarHeight];
     CGFloat available = MAX(0.0, CGRectGetHeight(self.candidateBar.bounds));
     CGFloat helpHeight = MIN(44.0, MIN(self.candidateBar.barHeight, available));
     if (fabs(self.settingsHelpHeightConstraint.constant - helpHeight) > 0.5) {
@@ -157,6 +173,66 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     }
     [self refreshInputModeSwitchKey];
     [self refreshReturnKeyType];
+#if DEBUG
+    [self logLayoutMetricsIfChanged];
+#endif
+}
+
+#if DEBUG
+- (void)logLayoutMetricsIfChanged {
+    UIWindow *window = self.view.window;
+    UIWindowScene *scene = window.windowScene;
+    if (!scene) { return; }
+    CGSize rootSize = self.view.bounds.size;
+    CGSize windowSize = window.bounds.size;
+    CGSize sceneSize = scene.coordinateSpace.bounds.size;
+    CGFloat preferredHeight = self.preferredContentSize.height;
+    NSInteger percent = [FSHSettings keyboardHeightPercent];
+    NSString *category = self.traitCollection.preferredContentSizeCategory ?: @"unspecified";
+    BOOL changed = !self.hasLoggedLayoutMetrics ||
+        fabs(rootSize.width - self.lastLoggedRootSize.width) > 0.5 ||
+        fabs(rootSize.height - self.lastLoggedRootSize.height) > 0.5 ||
+        fabs(windowSize.width - self.lastLoggedWindowSize.width) > 0.5 ||
+        fabs(windowSize.height - self.lastLoggedWindowSize.height) > 0.5 ||
+        fabs(sceneSize.width - self.lastLoggedSceneSize.width) > 0.5 ||
+        fabs(sceneSize.height - self.lastLoggedSceneSize.height) > 0.5 ||
+        fabs(preferredHeight - self.lastLoggedPreferredHeight) > 0.5 ||
+        percent != self.lastLoggedHeightPercent ||
+        self.candidateBar.isExpanded != self.lastLoggedExpanded ||
+        self.compactCandidateSelection != self.lastLoggedCompact ||
+        ![category isEqualToString:self.lastLoggedContentSizeCategory];
+    if (!changed) { return; }
+    self.hasLoggedLayoutMetrics = YES;
+    self.lastLoggedRootSize = rootSize;
+    self.lastLoggedWindowSize = windowSize;
+    self.lastLoggedSceneSize = sceneSize;
+    self.lastLoggedPreferredHeight = preferredHeight;
+    self.lastLoggedHeightPercent = percent;
+    self.lastLoggedExpanded = self.candidateBar.isExpanded;
+    self.lastLoggedCompact = self.compactCandidateSelection;
+    self.lastLoggedContentSizeCategory = category;
+    NSLog(@"[AdaptiveKeyboard] root=%.1fx%.1f window=%.1fx%.1f scene=%.1fx%.1f requested=%.1f percent=%ld category=%@ expanded=%d compact=%d",
+          rootSize.width, rootSize.height, windowSize.width, windowSize.height,
+          sceneSize.width, sceneSize.height, preferredHeight, (long)percent,
+          category, self.candidateBar.isExpanded, self.compactCandidateSelection);
+}
+#endif
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if (!self.isViewLoaded || !previousTraitCollection ||
+        [previousTraitCollection.preferredContentSizeCategory isEqualToString:self.traitCollection.preferredContentSizeCategory]) {
+        return;
+    }
+    self.settingsHelpBanner.titleLabel.font = [self settingsHelpFont];
+    [self updatePreferredContentSize];
+    [self updateCandidateBarHeight];
+}
+
+- (UIFont *)settingsHelpFont {
+    return [[UIFontMetrics metricsForTextStyle:UIFontTextStyleFootnote]
+        scaledFontForFont:[UIFont systemFontOfSize:14.0 weight:UIFontWeightMedium]
+        maximumPointSize:22.0 compatibleWithTraitCollection:self.traitCollection];
 }
 
 - (void)refreshReturnKeyType {
@@ -300,6 +376,13 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
         hint = @"無候選字，點字碼可直接輸入";
     }
 
+    [self refreshCandidateShortcutAvailability];
+    self.candidateBar.selectionContext = self.reverseState == FSHReverseStateActive
+        ? FSHCandidateSelectionContextReverseActive
+        : (self.reverseState == FSHReverseStateEntering
+           ? FSHCandidateSelectionContextReverseEntering
+           : (self.keyboardView.mode == FSHKeyboardModeLetters
+              ? FSHCandidateSelectionContextLetters : FSHCandidateSelectionContextSymbols));
     [self.candidateBar updateRawBuffer:raw
                              candidates:self.candidates
                              exactCount:self.exactCount
@@ -358,11 +441,13 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     if (keyCode == FSHKeyCodeModeChange) {
         [self endLiteralFallback];
         [self handleModeChange];
+        [self refreshCandidatesAndUI];
         return;
     }
     if (keyCode == FSHKeyCodeEmoji) {
         [self endLiteralFallback];
         self.keyboardView.mode = FSHKeyboardModeEmoji;
+        [self refreshCandidatesAndUI];
         return;
     }
     if (keyCode == FSHKeyCodeGlobe) {
@@ -724,6 +809,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     self.candidates = reverse ?: @[];
     self.reverseState = FSHReverseStateActive;
     self.exactCount = self.candidates.count;
+    self.candidateBar.selectionContext = FSHCandidateSelectionContextReverseActive;
     [self.candidateBar updateRawBuffer:self.rawBuffer
                              candidates:self.candidates
                              exactCount:self.exactCount
@@ -801,6 +887,16 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     BOOL isReverse = (self.reverseState == FSHReverseStateActive);
     NSUInteger typedLength = [self currentPrefix].length;
     [self commitCandidateAtIndex:index typedCodeLength:typedLength isReverse:isReverse];
+}
+
+- (void)candidateBarView:(FSHCandidateBarView *)barView
+ didReceiveInputModeEvent:(UIEvent *)event
+               fromView:(UIView *)view {
+    [self keyboardView:self.keyboardView didReceiveInputModeEvent:event fromView:view];
+}
+
+- (void)candidateBarViewDidActivateCompactGlobe:(FSHCandidateBarView *)barView {
+    [self keyboardView:self.keyboardView didPressKeyCode:FSHKeyCodeGlobe output:nil];
 }
 
 - (void)candidateBarView:(FSHCandidateBarView *)barView didToggleExpanded:(BOOL)expanded {
@@ -940,23 +1036,18 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 
     NSString *layout = [FSHSettings keyboardLayout];
     NSLog(@"[Keyboard] layout setting = %@", layout);
-    BOOL labelTop = [FSHSettings keyboardLabelTop];
+    BOOL labelTop = [FSHSettings effectiveKeyboardLabelTop];
     BOOL leftShift = [FSHSettings keyboardLeftShift];
-    BOOL showNumberRow = [FSHSettings showNumberRow];
+    BOOL showNumberRow = [FSHSettings effectiveShowNumberRow];
     FSHKeyboardLayout effectiveLayout = FSHKeyboardLayoutStandard;
     if ([layout isEqualToString:@"standard_spacious"]) {
         effectiveLayout = FSHKeyboardLayoutStandardSpacious;
     } else if ([layout isEqualToString:@"original"]) {
         effectiveLayout = FSHKeyboardLayoutOriginal;
     } else if ([layout isEqualToString:@"original_no_number"]) {
-        effectiveLayout = FSHKeyboardLayoutOriginalNoNumber;
-        showNumberRow = NO;
+        effectiveLayout = FSHKeyboardLayoutOriginal;
     } else if ([layout isEqualToString:@"standard_label_top"]) {
-        labelTop = YES;
-        if (![FSHSettings keyboardLabelTop]) {
-            [FSHSettings setKeyboardLabelTop:YES];
-        }
-        [FSHSettings setKeyboardLayout:@"standard"];
+        effectiveLayout = FSHKeyboardLayoutStandard;
     }
     [self.keyboardView applyLayout:effectiveLayout
                     showNumberRow:showNumberRow
@@ -978,33 +1069,93 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     if (self.candidateBar.isExpanded) {
         total += self.candidateBar.expandedHeight;
     }
-    self.preferredContentSize = CGSizeMake(0, total);
+    // A preferred size is a request, not an observation of the current input
+    // view.  Cap it using only the owning scene so rotation can restore the
+    // same saved percentage instead of ratcheting down after a short host.
+    CGFloat sceneLimit = [self preferredHeightLimitForScene];
+    if (isfinite(sceneLimit)) {
+        total = MIN(total, MAX(0.0, sceneLimit));
+    }
+    BOOL changed = fabs(self.preferredContentSize.height - total) > 0.5;
+    if (changed) {
+        self.preferredContentSize = CGSizeMake(0, total);
+    }
     if (!self.heightConstraint) {
         self.heightConstraint = [self.view.heightAnchor constraintEqualToConstant:total];
         self.heightConstraint.priority = UILayoutPriorityDefaultHigh;
         self.heightConstraint.active = YES;
-    } else {
+        changed = YES;
+    } else if (fabs(self.heightConstraint.constant - total) > 0.5) {
         self.heightConstraint.constant = total;
+        changed = YES;
     }
-    [self.view setNeedsLayout];
-    if (self.view.window) {
-        [self.view layoutIfNeeded];
+    if (changed) {
+        [self.view setNeedsLayout];
     }
+}
+
+- (CGFloat)preferredHeightLimitForScene {
+    UIWindow *window = self.view.window;
+    UIWindowScene *scene = window.windowScene;
+    if (!scene) { return CGFLOAT_MAX; }
+    return FSHSceneKeyboardHeightLimit(scene.coordinateSpace.bounds.size.height,
+                                       window.safeAreaInsets.top, window.safeAreaInsets.bottom);
 }
 
 - (void)updateCandidateBarHeight {
     if (!self.candidateBarHeightConstraint) {
         return;
     }
-    CGFloat height = self.candidateBar.barHeight;
+    // preferredContentSize is only a request.  The host may supply much less
+    // height in landscape/floating mode, so size the list from the actual view.
+    CGFloat available = FSHNonnegativeFinite(CGRectGetHeight(self.view.bounds));
+    CGFloat bar = MIN(self.candidateBar.barHeight, available);
+    CGFloat height = bar;
+    BOOL compactSelection = NO;
     if (self.candidateBar.isExpanded) {
-        height += self.candidateBar.expandedHeight;
+        CGFloat keyFloor = MIN(MAX(0.0, available - bar), self.keyboardView.minimumUsableHeight);
+        CGFloat viewport = MIN(self.candidateBar.expandedHeight, MAX(0.0, available - bar - keyFloor));
+        if (viewport < FSHCandidateRowDesiredHeight(self.traitCollection)) {
+            // Tiny landscape/floating hosts cannot show a usable expanded row
+            // and usable keys simultaneously.  More becomes a temporary
+            // candidate-selection mode; its top-bar button collapses it.
+            viewport = MIN(self.candidateBar.expandedHeight, MAX(0.0, available - bar));
+            compactSelection = YES;
+        }
+        height += viewport;
     }
-    self.candidateBarHeightConstraint.constant = height;
-    [self.view setNeedsLayout];
-    if (self.view.window) {
-        [self.view layoutIfNeeded];
+    if (compactSelection != self.compactCandidateSelection) {
+        self.compactCandidateSelection = compactSelection;
+        if (compactSelection) {
+            [self.keyboardView cancelActivePress];
+            [self stopDeleteRepeat];
+            self.deleteLockout = NO;
+        }
+        self.keyboardView.hidden = compactSelection;
+        self.keyboardView.accessibilityElementsHidden = compactSelection;
+        [self refreshCandidateShortcutAvailability];
     }
+    self.candidateBar.showsCompactGlobe = compactSelection && self.needsInputModeSwitchKey;
+    if (fabs(self.candidateBarHeightConstraint.constant - height) > 0.5) {
+        self.candidateBarHeightConstraint.constant = height;
+        [self.view setNeedsLayout];
+    }
+    [self.candidateBar applyAvailableHeight:height];
+}
+
+- (void)refreshCandidateShortcutAvailability {
+    BOOL digits = NO;
+    if (self.keyboardView.mode == FSHKeyboardModeLetters) {
+        digits = self.keyboardView.showNumberRow &&
+            self.keyboardView.layout != FSHKeyboardLayoutOriginalNoNumber;
+    } else if (self.keyboardView.mode == FSHKeyboardModeSymbols ||
+               self.keyboardView.mode == FSHKeyboardModeSymbolsShift) {
+        digits = YES;
+    }
+    BOOL keysReachable = !self.compactCandidateSelection && !self.keyboardView.hidden &&
+        self.keyboardView.userInteractionEnabled;
+    [self.candidateBar updateShortcutAvailabilityWithDigits:digits && keysReachable
+                                                       space:keysReachable];
 }
 
 - (void)handleSensitiveFieldIfNeeded {

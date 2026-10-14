@@ -2,12 +2,17 @@
 #import "FSHSettings.h"
 #import "SettingsViewController.h"
 #import "CodeSearchViewController.h"
+#import <math.h>
 
-@interface ViewController () <UITextFieldDelegate>
+@interface ViewController () <UITextFieldDelegate, UITextViewDelegate>
 
+@property (nonatomic, strong) UIScrollView *scrollView;
+@property (nonatomic, assign) CGSize lastScrollViewportSize;
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, strong) UITextField *singleLineField;
 @property (nonatomic, strong) UITextView *multiLineView;
+@property (nonatomic, strong) NSMutableArray<UIButton *> *actionButtons;
+@property (nonatomic, strong) NSMutableArray<NSLayoutConstraint *> *actionButtonHeights;
 
 @end
 
@@ -21,23 +26,27 @@
 
     [FSHSettings registerDefaults];
 
-    UIScrollView *scrollView = [[UIScrollView alloc] init];
-    scrollView.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:scrollView];
+    self.scrollView = [[UIScrollView alloc] init];
+    self.scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.scrollView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+    [self.view addSubview:self.scrollView];
 
     UIStackView *stack = [[UIStackView alloc] init];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 12.0;
-    [scrollView addSubview:stack];
+    [self.scrollView addSubview:stack];
 
     self.statusLabel = [[UILabel alloc] init];
     self.statusLabel.numberOfLines = 0;
-    self.statusLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightRegular];
+    self.statusLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+    self.statusLabel.adjustsFontForContentSizeCategory = YES;
     [stack addArrangedSubview:self.statusLabel];
 
     UILabel *singleLabel = [[UILabel alloc] init];
     singleLabel.text = @"單行測試區";
+    singleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    singleLabel.adjustsFontForContentSizeCategory = YES;
     [stack addArrangedSubview:singleLabel];
 
     self.singleLineField = [[UITextField alloc] init];
@@ -45,10 +54,14 @@
     self.singleLineField.borderStyle = UITextBorderStyleRoundedRect;
     self.singleLineField.delegate = self;
     self.singleLineField.returnKeyType = UIReturnKeyNext;
+    self.singleLineField.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    self.singleLineField.adjustsFontForContentSizeCategory = YES;
     [stack addArrangedSubview:self.singleLineField];
 
     UILabel *multiLabel = [[UILabel alloc] init];
     multiLabel.text = @"多行測試區";
+    multiLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    multiLabel.adjustsFontForContentSizeCategory = YES;
     [stack addArrangedSubview:multiLabel];
 
     self.multiLineView = [[UITextView alloc] init];
@@ -56,7 +69,9 @@
     self.multiLineView.layer.borderColor = [UIColor systemGray4Color].CGColor;
     self.multiLineView.layer.borderWidth = 1.0;
     self.multiLineView.layer.cornerRadius = 8.0;
-    self.multiLineView.font = [UIFont systemFontOfSize:16.0];
+    self.multiLineView.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    self.multiLineView.adjustsFontForContentSizeCategory = YES;
+    self.multiLineView.delegate = self;
     self.multiLineView.textContainerInset = UIEdgeInsetsMake(8, 6, 8, 6);
     [stack addArrangedSubview:self.multiLineView];
 
@@ -68,6 +83,7 @@
     UIButton *showPickerButton = [self actionButtonWithTitle:@"顯示鍵盤選擇器" selector:@selector(showKeyboardPickerHint)];
     UIButton *focusSingleButton = [self actionButtonWithTitle:@"聚焦單行並顯示鍵盤" selector:@selector(focusSingleLine)];
     UIButton *clearButton = [self actionButtonWithTitle:@"清空兩個輸入框" selector:@selector(clearFields)];
+    clearButton.accessibilityIdentifier = @"smoke.clearFields";
     UIButton *refreshButton = [self actionButtonWithTitle:@"刷新狀態" selector:@selector(refreshStatus)];
 
     [stack addArrangedSubview:codeSearchButton];
@@ -79,21 +95,101 @@
     [stack addArrangedSubview:refreshButton];
 
     [NSLayoutConstraint activateConstraints:@[
-        [scrollView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [scrollView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [scrollView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
-        [scrollView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [self.scrollView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.scrollView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.scrollView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
+        [self.scrollView.bottomAnchor constraintEqualToAnchor:self.view.keyboardLayoutGuide.topAnchor],
 
-        [stack.leadingAnchor constraintEqualToAnchor:scrollView.leadingAnchor constant:16.0],
-        [stack.trailingAnchor constraintEqualToAnchor:scrollView.trailingAnchor constant:-16.0],
-        [stack.topAnchor constraintEqualToAnchor:scrollView.topAnchor constant:16.0],
-        [stack.bottomAnchor constraintEqualToAnchor:scrollView.bottomAnchor constant:-16.0],
-        [stack.widthAnchor constraintEqualToAnchor:scrollView.widthAnchor constant:-32.0],
+        [stack.leadingAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.leadingAnchor constant:16.0],
+        [stack.trailingAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.trailingAnchor constant:-16.0],
+        [stack.topAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.topAnchor constant:16.0],
+        [stack.bottomAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.bottomAnchor constant:-16.0],
+        [stack.widthAnchor constraintEqualToAnchor:self.scrollView.frameLayoutGuide.widthAnchor constant:-32.0],
 
-        [self.multiLineView.heightAnchor constraintEqualToConstant:140.0],
+        [self.singleLineField.heightAnchor constraintGreaterThanOrEqualToConstant:44.0],
+        [self.multiLineView.heightAnchor constraintGreaterThanOrEqualToConstant:140.0],
     ]];
 
     [self refreshStatus];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self refreshActionButtonHeights];
+    CGSize viewport = self.scrollView.bounds.size;
+    if (!CGSizeEqualToSize(viewport, self.lastScrollViewportSize)) {
+        self.lastScrollViewportSize = viewport;
+        if (!self.scrollView.isDragging && !self.scrollView.isDecelerating) {
+            [self scrollFocusedInputIntoView];
+        }
+    }
+}
+
+- (void)viewWillTransitionToSize:(CGSize)size
+       withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+    __weak typeof(self) weakSelf = self;
+    [coordinator animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+        [weakSelf scrollFocusedInputIntoView];
+    }];
+}
+
+- (void)scrollFocusedInputIntoView {
+    if (CGRectIsEmpty(self.scrollView.bounds) ||
+        self.scrollView.isDragging || self.scrollView.isDecelerating) {
+        return;
+    }
+    CGRect target;
+    if (self.singleLineField.isFirstResponder) {
+        target = [self.singleLineField convertRect:self.singleLineField.bounds toView:self.scrollView];
+    } else if (self.multiLineView.isFirstResponder) {
+        if (self.multiLineView.selectedRange.location != NSNotFound) {
+            [self.multiLineView scrollRangeToVisible:self.multiLineView.selectedRange];
+        }
+        UITextPosition *caret = self.multiLineView.selectedTextRange.end;
+        CGRect caretRect = caret ? [self.multiLineView caretRectForPosition:caret] : self.multiLineView.bounds;
+        target = [self.multiLineView convertRect:caretRect toView:self.scrollView];
+    } else {
+        return;
+    }
+    [self.scrollView scrollRectToVisible:CGRectInset(target, 0.0, -8.0) animated:NO];
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if (!self.isViewLoaded || !previousTraitCollection ||
+        [previousTraitCollection.preferredContentSizeCategory isEqualToString:self.traitCollection.preferredContentSizeCategory]) {
+        return;
+    }
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf.isViewLoaded &&
+            [strongSelf respondsToSelector:@selector(scrollFocusedInputIntoView)]) {
+            [strongSelf.view layoutIfNeeded];
+            [strongSelf scrollFocusedInputIntoView];
+        }
+    });
+}
+
+- (void)refreshActionButtonHeights {
+    for (NSUInteger index = 0; index < self.actionButtons.count; index++) {
+        UIButton *button = self.actionButtons[index];
+        CGFloat textWidth = CGRectGetWidth(button.bounds) - button.contentEdgeInsets.left - button.contentEdgeInsets.right;
+        if (textWidth <= 0.0) { continue; }
+        NSString *title = [button titleForState:UIControlStateNormal] ?: @"";
+        CGRect textRect = [title boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX)
+                                             options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
+                                          attributes:@{NSFontAttributeName: button.titleLabel.font}
+                                             context:nil];
+        CGFloat minimum = MAX(44.0, ceil(CGRectGetHeight(textRect)) + button.contentEdgeInsets.top + button.contentEdgeInsets.bottom);
+        NSLayoutConstraint *height = self.actionButtonHeights[index];
+        if (fabs(height.constant - minimum) > 0.5) {
+            height.constant = minimum;
+            button.titleLabel.preferredMaxLayoutWidth = textWidth;
+            [button invalidateIntrinsicContentSize];
+        }
+    }
 }
 
 - (UIButton *)actionButtonWithTitle:(NSString *)title selector:(SEL)selector {
@@ -101,6 +197,19 @@
     button.layer.cornerRadius = 8.0;
     button.backgroundColor = [UIColor systemGray5Color];
     button.contentEdgeInsets = UIEdgeInsetsMake(10, 12, 10, 12);
+    button.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    button.titleLabel.adjustsFontForContentSizeCategory = YES;
+    button.titleLabel.numberOfLines = 0;
+    button.titleLabel.lineBreakMode = NSLineBreakByWordWrapping;
+    button.titleLabel.textAlignment = NSTextAlignmentCenter;
+    NSLayoutConstraint *minimumHeight = [button.heightAnchor constraintGreaterThanOrEqualToConstant:44.0];
+    minimumHeight.active = YES;
+    if (!self.actionButtons) {
+        self.actionButtons = [NSMutableArray array];
+        self.actionButtonHeights = [NSMutableArray array];
+    }
+    [self.actionButtons addObject:button];
+    [self.actionButtonHeights addObject:minimumHeight];
     [button setTitle:title forState:UIControlStateNormal];
     [button addTarget:self action:selector forControlEvents:UIControlEventTouchUpInside];
     return button;
@@ -144,6 +253,7 @@
 
 - (void)focusSingleLine {
     [self.singleLineField becomeFirstResponder];
+    [self scrollFocusedInputIntoView];
 }
 
 - (void)clearFields {
@@ -153,8 +263,21 @@
 
 #pragma mark - UITextFieldDelegate
 
+- (void)textFieldDidBeginEditing:(UITextField *)textField {
+    [self scrollFocusedInputIntoView];
+}
+
+- (void)textViewDidBeginEditing:(UITextView *)textView {
+    [self scrollFocusedInputIntoView];
+}
+
+- (void)textViewDidChangeSelection:(UITextView *)textView {
+    [self scrollFocusedInputIntoView];
+}
+
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
     [self.multiLineView becomeFirstResponder];
+    [self scrollFocusedInputIntoView];
     return NO;
 }
 

@@ -1,9 +1,9 @@
 #import "FSHCandidateBarView.h"
 #import "FSHCandidate.h"
+#import "FSHKeyboardMetrics.h"
+#import "FSHKeyButton.h"
 
-static const CGFloat kFSHCandidateBarHeight = 37.5;
 static const CGFloat kFSHCandidateMoreHeight = 180.0;
-static const CGFloat kFSHCandidateButtonHeight = 37.5;
 static const NSUInteger kFSHCandidateMoreColumns = 5;
 
 @interface FSHCandidateBarView ()
@@ -15,6 +15,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 @property (nonatomic, strong) UIStackView *candidateStack;
 @property (nonatomic, strong) NSMutableArray<UIButton *> *inlineButtonPool;
 @property (nonatomic, strong) UIButton *moreButton;
+@property (nonatomic, strong) FSHKeyButton *compactGlobeButton;
 @property (nonatomic, strong) UILabel *hintLabel;
 
 @property (nonatomic, strong) UIView *moreContainer;
@@ -23,15 +24,21 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 @property (nonatomic, strong) NSMutableArray<UIButton *> *moreButtonPool;
 
 @property (nonatomic, strong) NSLayoutConstraint *moreHeightConstraint;
+@property (nonatomic, strong) NSLayoutConstraint *topBarHeightConstraint;
+@property (nonatomic, strong) NSLayoutConstraint *moreButtonHeightConstraint;
 @property (nonatomic, strong) NSLayoutConstraint *moreContentHeightConstraint;
 @property (nonatomic, strong) NSLayoutConstraint *scrollTrailingWithMore;
 @property (nonatomic, strong) NSLayoutConstraint *scrollTrailingWithoutMore;
+@property (nonatomic, strong) NSLayoutConstraint *candidateTrailingWithGlobe;
+@property (nonatomic, strong) NSLayoutConstraint *candidateTrailingWithoutGlobe;
 
 @property (nonatomic, copy) NSArray<FSHCandidate *> *currentCandidates;
 @property (nonatomic, assign) NSUInteger currentExactCount;
 @property (nonatomic, assign) NSUInteger currentInlineLimit;
 @property (nonatomic, assign) NSUInteger currentMoreLimit;
 @property (nonatomic, copy) NSArray *currentQuerySignature;
+@property (nonatomic, assign) BOOL digitShortcutsAvailable;
+@property (nonatomic, assign) BOOL spaceShortcutAvailable;
 
 @end
 
@@ -40,6 +47,8 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
+        _digitShortcutsAvailable = YES;
+        _spaceShortcutAvailable = YES;
         [self setupViews];
     }
     return self;
@@ -48,17 +57,43 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 - (instancetype)initWithCoder:(NSCoder *)coder {
     self = [super initWithCoder:coder];
     if (self) {
+        _digitShortcutsAvailable = YES;
+        _spaceShortcutAvailable = YES;
         [self setupViews];
     }
     return self;
 }
 
 - (CGFloat)barHeight {
-    return kFSHCandidateBarHeight;
+    return FSHCandidateBarDesiredHeight(self.traitCollection);
 }
 
 - (CGFloat)expandedHeight {
     return kFSHCandidateMoreHeight;
+}
+
+- (void)updateShortcutAvailabilityWithDigits:(BOOL)digits space:(BOOL)space {
+    if (self.digitShortcutsAvailable == digits && self.spaceShortcutAvailable == space) {
+        return;
+    }
+    self.digitShortcutsAvailable = digits;
+    self.spaceShortcutAvailable = space;
+    [UIView performWithoutAnimation:^{
+        for (UIButton *button in self.candidateStack.arrangedSubviews) {
+            NSUInteger index = (NSUInteger)button.tag;
+            if (index < self.currentCandidates.count) {
+                [self configureCandidateButton:button index:index candidate:self.currentCandidates[index]
+                                    exactCount:self.currentExactCount];
+            }
+        }
+        for (UIButton *button in self.moreButtonPool) {
+            NSUInteger index = (NSUInteger)button.tag;
+            if (button.superview == self.moreContentView && index < self.currentCandidates.count) {
+                [self configureCandidateButton:button index:index candidate:self.currentCandidates[index]
+                                    exactCount:self.currentExactCount];
+            }
+        }
+    }];
 }
 
 - (void)setExpanded:(BOOL)expanded {
@@ -71,7 +106,15 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     }
     _expanded = expanded;
     self.moreContainer.hidden = !expanded;
-    self.moreHeightConstraint.constant = expanded ? kFSHCandidateMoreHeight : 0.0;
+    self.moreButton.accessibilityLabel = expanded ? @"收起更多候選字" : @"更多候選字";
+    self.moreButton.accessibilityValue = expanded ? @"已展開" : @"已收合";
+    self.moreButton.accessibilityHint = expanded ? @"點兩下收合候選字" : @"點兩下展開候選字";
+    self.moreButton.accessibilityTraits = UIAccessibilityTraitButton | (expanded ? UIAccessibilityTraitSelected : 0);
+    // Request the full list when standalone; the controller can budget it down.
+    self.moreHeightConstraint.constant = expanded ? self.expandedHeight : 0.0;
+    if ([self.delegate respondsToSelector:@selector(candidateBarView:didToggleExpanded:)]) {
+        [self.delegate candidateBarView:self didToggleExpanded:expanded];
+    }
     if (animated) {
         [UIView animateWithDuration:0.2 animations:^{
             [self layoutIfNeeded];
@@ -79,9 +122,51 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     } else {
         [self setNeedsLayout];
     }
-    if ([self.delegate respondsToSelector:@selector(candidateBarView:didToggleExpanded:)]) {
-        [self.delegate candidateBarView:self didToggleExpanded:expanded];
+}
+
+- (void)setShowsCompactGlobe:(BOOL)showsCompactGlobe {
+    if (_showsCompactGlobe == showsCompactGlobe) { return; }
+    _showsCompactGlobe = showsCompactGlobe;
+    self.compactGlobeButton.hidden = !showsCompactGlobe;
+    self.candidateTrailingWithoutGlobe.active = NO;
+    self.candidateTrailingWithGlobe.active = NO;
+    if (showsCompactGlobe) {
+        self.candidateTrailingWithGlobe.active = YES;
+    } else {
+        self.candidateTrailingWithoutGlobe.active = YES;
     }
+    [self setNeedsLayout];
+}
+
+- (void)applyAvailableHeight:(CGFloat)height {
+    CGFloat available = FSHNonnegativeFinite(height);
+    CGFloat top = MIN(self.barHeight, available);
+    CGFloat more = self.isExpanded ? MAX(0.0, available - top) : 0.0;
+    if (fabs(self.topBarHeightConstraint.constant - top) > 0.5 ||
+        fabs(self.moreButtonHeightConstraint.constant - top) > 0.5 ||
+        fabs(self.moreHeightConstraint.constant - more) > 0.5) {
+        self.topBarHeightConstraint.constant = top;
+        self.moreButtonHeightConstraint.constant = top;
+        self.moreHeightConstraint.constant = more;
+        [self setNeedsLayout];
+    }
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if (!previousTraitCollection ||
+        [previousTraitCollection.preferredContentSizeCategory isEqualToString:self.traitCollection.preferredContentSizeCategory]) {
+        return;
+    }
+    UIFont *font = [self candidateFont];
+    self.rawButton.titleLabel.font = font;
+    self.moreButton.titleLabel.font = font;
+    self.compactGlobeButton.titleLabel.font = font;
+    self.hintLabel.font = font;
+    for (UIButton *button in self.inlineButtonPool) { button.titleLabel.font = font; }
+    for (UIButton *button in self.moreButtonPool) { button.titleLabel.font = font; }
+    [self applyAvailableHeight:CGRectGetHeight(self.bounds)];
+    [self setNeedsLayout];
 }
 
 - (void)updateRawBuffer:(NSString *)rawBuffer
@@ -119,6 +204,8 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
         self.currentMoreLimit = moreLimit;
 
         [self.rawButton setTitle:rawText forState:UIControlStateNormal];
+        self.rawButton.accessibilityLabel = rawText;
+        self.rawButton.accessibilityHint = @"點兩下輸入原始字碼";
         self.rawButton.hidden = (rawText.length == 0);
 
         BOOL showHint = (hintText.length > 0 && self.currentCandidates.count == 0);
@@ -197,7 +284,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     self.rawButton.translatesAutoresizingMaskIntoConstraints = NO;
     self.rawButton.titleLabel.font = [self candidateFont];
     self.rawButton.titleLabel.adjustsFontSizeToFitWidth = YES;
-    self.rawButton.titleLabel.minimumScaleFactor = 12.0 / 18.0;
+    self.rawButton.titleLabel.minimumScaleFactor = 0.75;
     self.rawButton.contentEdgeInsets = UIEdgeInsetsMake(1, 7, 1, 7);
     self.rawButton.layer.cornerRadius = 6.0;
     self.rawButton.backgroundColor = [UIColor systemGray5Color];
@@ -210,6 +297,24 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     self.candidateArea = [[UIView alloc] init];
     self.candidateArea.translatesAutoresizingMaskIntoConstraints = NO;
     [self.topBar addSubview:self.candidateArea];
+
+    self.compactGlobeButton = [FSHKeyButton buttonWithType:UIButtonTypeSystem];
+    self.compactGlobeButton.translatesAutoresizingMaskIntoConstraints = NO;
+    self.compactGlobeButton.hidden = YES;
+    self.compactGlobeButton.accessibilityLabel = @"切換鍵盤";
+    self.compactGlobeButton.accessibilityIdentifier = @"candidate.compactGlobe";
+    self.compactGlobeButton.titleLabel.font = [self candidateFont];
+    [self.compactGlobeButton setTitle:@"🌐" forState:UIControlStateNormal];
+    [self.compactGlobeButton addTarget:self action:@selector(handleCompactGlobeEvent:forEvent:)
+                     forControlEvents:UIControlEventAllTouchEvents];
+    __weak typeof(self) weakSelf = self;
+    self.compactGlobeButton.accessibilityActivationHandler = ^{
+        typeof(self) strongSelf = weakSelf;
+        if ([strongSelf.delegate respondsToSelector:@selector(candidateBarViewDidActivateCompactGlobe:)]) {
+            [strongSelf.delegate candidateBarViewDidActivateCompactGlobe:strongSelf];
+        }
+    };
+    [self.topBar addSubview:self.compactGlobeButton];
 
     self.scrollView = [[UIScrollView alloc] init];
     self.scrollView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -228,6 +333,9 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     self.moreButton.translatesAutoresizingMaskIntoConstraints = NO;
     self.moreButton.titleLabel.font = [self candidateFont];
     [self.moreButton setTitle:@"⋯" forState:UIControlStateNormal];
+    self.moreButton.accessibilityLabel = @"更多候選字";
+    self.moreButton.accessibilityValue = @"已收合";
+    self.moreButton.accessibilityHint = @"點兩下展開候選字";
     [self.moreButton addTarget:self action:@selector(handleMoreTap) forControlEvents:UIControlEventTouchUpInside];
     [self.candidateArea addSubview:self.moreButton];
 
@@ -236,7 +344,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     self.hintLabel.translatesAutoresizingMaskIntoConstraints = NO;
     self.hintLabel.font = [self candidateFont];
     self.hintLabel.adjustsFontSizeToFitWidth = YES;
-    self.hintLabel.minimumScaleFactor = 12.0 / 18.0;
+    self.hintLabel.minimumScaleFactor = 0.75;
     self.hintLabel.textAlignment = NSTextAlignmentRight;
     self.hintLabel.textColor = [UIColor secondaryLabelColor];
     [self.topBar addSubview:self.hintLabel];
@@ -260,16 +368,18 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
         [self.topBar.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
         [self.topBar.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
         [self.topBar.topAnchor constraintEqualToAnchor:self.topAnchor],
-        [self.topBar.heightAnchor constraintEqualToConstant:kFSHCandidateBarHeight],
 
         [self.rawButton.leadingAnchor constraintEqualToAnchor:self.topBar.leadingAnchor constant:4.0],
         [self.rawButton.centerYAnchor constraintEqualToAnchor:self.topBar.centerYAnchor],
         [self.rawButton.widthAnchor constraintLessThanOrEqualToAnchor:self.topBar.widthAnchor multiplier:0.35],
 
         [self.candidateArea.leadingAnchor constraintEqualToAnchor:self.rawButton.trailingAnchor constant:4.0],
-        [self.candidateArea.trailingAnchor constraintEqualToAnchor:self.topBar.trailingAnchor constant:-4.0],
         [self.candidateArea.topAnchor constraintEqualToAnchor:self.topBar.topAnchor],
         [self.candidateArea.bottomAnchor constraintEqualToAnchor:self.topBar.bottomAnchor],
+
+        [self.compactGlobeButton.trailingAnchor constraintEqualToAnchor:self.topBar.trailingAnchor constant:-4.0],
+        [self.compactGlobeButton.centerYAnchor constraintEqualToAnchor:self.topBar.centerYAnchor],
+        [self.compactGlobeButton.widthAnchor constraintEqualToConstant:44.0],
 
         [self.scrollView.leadingAnchor constraintEqualToAnchor:self.candidateArea.leadingAnchor],
         [self.scrollView.topAnchor constraintEqualToAnchor:self.candidateArea.topAnchor],
@@ -284,7 +394,6 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
         [self.moreButton.trailingAnchor constraintEqualToAnchor:self.candidateArea.trailingAnchor],
         [self.moreButton.centerYAnchor constraintEqualToAnchor:self.candidateArea.centerYAnchor],
         [self.moreButton.widthAnchor constraintEqualToConstant:44.0],
-        [self.moreButton.heightAnchor constraintEqualToConstant:kFSHCandidateBarHeight],
 
         [self.hintLabel.leadingAnchor constraintEqualToAnchor:self.rawButton.trailingAnchor constant:8.0],
         [self.hintLabel.trailingAnchor constraintEqualToAnchor:self.topBar.trailingAnchor constant:-8.0],
@@ -295,6 +404,14 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
         [self.moreContainer.topAnchor constraintEqualToAnchor:self.topBar.bottomAnchor],
         [self.moreContainer.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
     ]];
+    self.topBarHeightConstraint = [self.topBar.heightAnchor constraintEqualToConstant:self.barHeight];
+    self.topBarHeightConstraint.active = YES;
+    self.moreButtonHeightConstraint = [self.moreButton.heightAnchor constraintEqualToConstant:self.barHeight];
+    self.moreButtonHeightConstraint.active = YES;
+    [self.compactGlobeButton.heightAnchor constraintEqualToAnchor:self.topBar.heightAnchor].active = YES;
+    self.candidateTrailingWithoutGlobe = [self.candidateArea.trailingAnchor constraintEqualToAnchor:self.topBar.trailingAnchor constant:-4.0];
+    self.candidateTrailingWithGlobe = [self.candidateArea.trailingAnchor constraintEqualToAnchor:self.compactGlobeButton.leadingAnchor constant:-4.0];
+    self.candidateTrailingWithoutGlobe.active = YES;
 
     self.scrollTrailingWithMore = [self.scrollView.trailingAnchor constraintEqualToAnchor:self.moreButton.leadingAnchor constant:-4.0];
     self.scrollTrailingWithoutMore = [self.scrollView.trailingAnchor constraintEqualToAnchor:self.candidateArea.trailingAnchor];
@@ -320,7 +437,9 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 }
 
 - (UIFont *)candidateFont {
-    return [UIFont systemFontOfSize:18.0 weight:UIFontWeightRegular];
+    UIFont *base = [UIFont systemFontOfSize:18.0 weight:UIFontWeightRegular];
+    return [[UIFontMetrics metricsForTextStyle:UIFontTextStyleBody]
+        scaledFontForFont:base maximumPointSize:27.0 compatibleWithTraitCollection:self.traitCollection];
 }
 
 - (void)rebuildInlineCandidatesWithLimit:(NSUInteger)inlineLimit {
@@ -377,13 +496,14 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
         [self setNeedsLayout];
         return;
     }
-    CGFloat buttonWidth = (totalWidth - gap * (kFSHCandidateMoreColumns - 1)) / kFSHCandidateMoreColumns;
+    CGFloat buttonWidth = MAX(0.0, (totalWidth - gap * (kFSHCandidateMoreColumns - 1)) / kFSHCandidateMoreColumns);
+    CGFloat rowHeight = FSHCandidateRowDesiredHeight(self.traitCollection);
 
     for (NSUInteger index = 0; index < count; index++) {
         NSUInteger row = index / kFSHCandidateMoreColumns;
         NSUInteger col = index % kFSHCandidateMoreColumns;
         CGFloat x = (buttonWidth + gap) * col;
-        CGFloat y = (kFSHCandidateButtonHeight + gap) * row;
+        CGFloat y = (rowHeight + gap) * row;
 
         FSHCandidate *candidate = self.currentCandidates[index];
         UIButton *button;
@@ -395,14 +515,14 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
             [self.moreButtonPool addObject:button];
         }
         button.accessibilityIdentifier = [NSString stringWithFormat:@"candidate.expanded.%lu", (unsigned long)index];
-        button.frame = CGRectMake(x, y, buttonWidth, kFSHCandidateButtonHeight);
+        button.frame = CGRectMake(x, y, buttonWidth, rowHeight);
         if (button.superview != self.moreContentView) {
             [self.moreContentView addSubview:button];
         }
     }
 
     CGFloat rows = ceil((double)count / (double)kFSHCandidateMoreColumns);
-    CGFloat contentHeight = rows * kFSHCandidateButtonHeight + (rows - 1) * gap;
+    CGFloat contentHeight = rows * rowHeight + (rows - 1) * gap;
     if (self.moreContentHeightConstraint.constant != contentHeight) {
         self.moreContentHeightConstraint.constant = contentHeight;
     }
@@ -419,7 +539,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     button.tag = index;
     button.titleLabel.font = [self candidateFont];
     button.titleLabel.adjustsFontSizeToFitWidth = YES;
-    button.titleLabel.minimumScaleFactor = 12.0 / 18.0;
+    button.titleLabel.minimumScaleFactor = 0.75;
     button.contentEdgeInsets = UIEdgeInsetsMake(1, 7, 1, 7);
     button.layer.cornerRadius = 6.0;
     button.layer.borderWidth = 0.5;
@@ -440,6 +560,38 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     button.tag = index;
     [button setTitle:candidate.value forState:UIControlStateNormal];
     [button setTitleColor:[self candidateColorForIndex:index exactCount:exactCount] forState:UIControlStateNormal];
+    button.accessibilityLabel = candidate.value;
+    BOOL exact = index < exactCount;
+    NSString *status = exact ? @"完全符合" : @"前綴候選";
+    if (self.selectionContext == FSHCandidateSelectionContextReverseActive) {
+        status = @"同音字候選";
+    }
+    NSString *codeLabel = self.selectionContext == FSHCandidateSelectionContextReverseActive ? @"讀音碼" : @"字碼";
+    button.accessibilityValue = [NSString stringWithFormat:@"%@ %@，%@", codeLabel, candidate.code, status];
+    BOOL digitShortcut = self.digitShortcutsAvailable && index < 10 &&
+        ((self.selectionContext == FSHCandidateSelectionContextLetters && exact) ||
+         (self.selectionContext == FSHCandidateSelectionContextReverseEntering && exact) ||
+         self.selectionContext == FSHCandidateSelectionContextReverseActive);
+    BOOL spaceShortcut = self.spaceShortcutAvailable && index == 0 &&
+        (exact || self.selectionContext == FSHCandidateSelectionContextReverseActive);
+    BOOL canExploreHomophones = self.selectionContext == FSHCandidateSelectionContextReverseEntering &&
+        exact && candidate.value.length > 0 &&
+        NSMaxRange([candidate.value rangeOfComposedCharacterSequenceAtIndex:0]) == candidate.value.length;
+    NSString *action = canExploreHomophones
+        ? @"點兩下查看同音字" : @"點兩下輸入候選字";
+    NSMutableArray<NSString *> *shortcuts = [NSMutableArray array];
+    if (digitShortcut) {
+        [shortcuts addObject:[NSString stringWithFormat:@"數字 %lu", (unsigned long)index]];
+    }
+    if (spaceShortcut) {
+        [shortcuts addObject:@"空白鍵"];
+    }
+    if (shortcuts.count > 0) {
+        button.accessibilityHint = [NSString stringWithFormat:@"%@；也可按%@", action,
+                                    [shortcuts componentsJoinedByString:@"或"]];
+    } else {
+        button.accessibilityHint = action;
+    }
 }
 
 - (UIColor *)candidateColorForIndex:(NSUInteger)index exactCount:(NSUInteger)exactCount {
@@ -471,8 +623,21 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     }
 }
 
+- (void)handleCompactGlobeEvent:(FSHKeyButton *)sender forEvent:(UIEvent *)event {
+    if ([self.delegate respondsToSelector:@selector(candidateBarView:didReceiveInputModeEvent:fromView:)]) {
+        [self.delegate candidateBarView:self didReceiveInputModeEvent:event fromView:sender];
+    }
+}
+
 - (void)layoutSubviews {
     [super layoutSubviews];
+    CGFloat height = FSHNonnegativeFinite(CGRectGetHeight(self.bounds));
+    CGFloat top = MIN(self.barHeight, height);
+    CGFloat more = self.isExpanded ? MAX(0.0, height - top) : 0.0;
+    if (fabs(self.topBarHeightConstraint.constant - top) > 0.5 ||
+        fabs(self.moreHeightConstraint.constant - more) > 0.5) {
+        [self applyAvailableHeight:height];
+    }
     if (self.isExpanded) {
         [self rebuildMoreCandidatesWithLimit:self.currentMoreLimit];
     }

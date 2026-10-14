@@ -6,6 +6,8 @@
 @property (nonatomic, strong) UILabel *heightValueLabel;
 @property (nonatomic, strong) UISlider *heightSlider;
 @property (nonatomic, strong) UISegmentedControl *layoutSegment;
+@property (nonatomic, strong) NSLayoutConstraint *layoutSegmentHeightConstraint;
+@property (nonatomic, assign) CGFloat lastSegmentFontSize;
 @property (nonatomic, strong) UISwitch *numberRowSwitch;
 @property (nonatomic, strong) UISwitch *labelTopSwitch;
 @property (nonatomic, strong) UISwitch *leftShiftSwitch;
@@ -40,10 +42,11 @@
 
     UILabel *heightLabel = [[UILabel alloc] init];
     heightLabel.text = @"鍵盤高度 (%)";
+    [self styleBodyLabel:heightLabel];
     [stack addArrangedSubview:heightLabel];
 
     self.heightValueLabel = [[UILabel alloc] init];
-    self.heightValueLabel.font = [UIFont systemFontOfSize:14.0];
+    [self styleValueLabel:self.heightValueLabel];
     [stack addArrangedSubview:self.heightValueLabel];
 
     self.heightSlider = [[UISlider alloc] init];
@@ -54,9 +57,13 @@
 
     UILabel *layoutLabel = [[UILabel alloc] init];
     layoutLabel.text = @"鍵盤排版";
+    [self styleBodyLabel:layoutLabel];
     [stack addArrangedSubview:layoutLabel];
 
     self.layoutSegment = [[UISegmentedControl alloc] initWithItems:@[@"標準", @"間距", @"原始"]];
+    self.layoutSegmentHeightConstraint = [self.layoutSegment.heightAnchor constraintGreaterThanOrEqualToConstant:44.0];
+    self.layoutSegmentHeightConstraint.active = YES;
+    [self updateSegmentTypography];
     [self.layoutSegment addTarget:self action:@selector(layoutChanged:) forControlEvents:UIControlEventValueChanged];
     [stack addArrangedSubview:self.layoutSegment];
 
@@ -66,10 +73,11 @@
 
     UILabel *inlineLabel = [[UILabel alloc] init];
     inlineLabel.text = @"候選列顯示筆數";
+    [self styleBodyLabel:inlineLabel];
     [stack addArrangedSubview:inlineLabel];
 
     self.inlineValueLabel = [[UILabel alloc] init];
-    self.inlineValueLabel.font = [UIFont systemFontOfSize:14.0];
+    [self styleValueLabel:self.inlineValueLabel];
     [stack addArrangedSubview:self.inlineValueLabel];
 
     self.inlineStepper = [[UIStepper alloc] init];
@@ -81,10 +89,11 @@
 
     UILabel *moreLabel = [[UILabel alloc] init];
     moreLabel.text = @"更多候選最大筆數";
+    [self styleBodyLabel:moreLabel];
     [stack addArrangedSubview:moreLabel];
 
     self.moreValueLabel = [[UILabel alloc] init];
-    self.moreValueLabel.font = [UIFont systemFontOfSize:14.0];
+    [self styleValueLabel:self.moreValueLabel];
     [stack addArrangedSubview:self.moreValueLabel];
 
     self.moreStepper = [[UIStepper alloc] init];
@@ -121,6 +130,54 @@
     [self refreshUI];
 }
 
+- (void)styleBodyLabel:(UILabel *)label {
+    label.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    label.adjustsFontForContentSizeCategory = YES;
+    label.numberOfLines = 0;
+}
+
+- (void)styleValueLabel:(UILabel *)label {
+    label.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+    label.adjustsFontForContentSizeCategory = YES;
+    label.numberOfLines = 0;
+}
+
+- (void)updateSegmentTypography {
+    UIFont *preferred = [UIFont preferredFontForTextStyle:UIFontTextStyleBody
+                             compatibleWithTraitCollection:self.traitCollection];
+    CGFloat width = CGRectGetWidth(self.layoutSegment.bounds);
+    if (width <= 0.0) { width = MAX(0.0, CGRectGetWidth(self.view.bounds) - 32.0); }
+    if (width <= 0.0) { width = 288.0; }
+    CGFloat labelWidth = MAX(1.0, width / 3.0 - 16.0);
+    CGFloat pointSize = preferred.pointSize;
+    for (NSString *title in @[@"標準", @"間距", @"原始"]) {
+        CGFloat measured = [title sizeWithAttributes:@{NSFontAttributeName: preferred}].width;
+        if (measured > labelWidth) {
+            pointSize = MIN(pointSize, preferred.pointSize * labelWidth / measured);
+        }
+    }
+    pointSize = MAX(12.0, MIN(preferred.pointSize, pointSize));
+    if (fabs(self.lastSegmentFontSize - pointSize) <= 0.25) { return; }
+    self.lastSegmentFontSize = pointSize;
+    UIFont *font = [preferred fontWithSize:pointSize];
+    [self.layoutSegment setTitleTextAttributes:@{NSFontAttributeName: font} forState:UIControlStateNormal];
+    self.layoutSegmentHeightConstraint.constant = MAX(44.0, ceil(font.lineHeight + 16.0));
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self updateSegmentTypography];
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if (!self.isViewLoaded || !previousTraitCollection ||
+        [previousTraitCollection.preferredContentSizeCategory isEqualToString:self.traitCollection.preferredContentSizeCategory]) {
+        return;
+    }
+    [self updateSegmentTypography];
+}
+
 - (UISwitch *)addSwitchRowWithTitle:(NSString *)title toStack:(UIStackView *)stack selector:(SEL)selector {
     UIView *container = [[UIView alloc] init];
     UILabel *label = [[UILabel alloc] init];
@@ -134,6 +191,7 @@
     toggle.translatesAutoresizingMaskIntoConstraints = NO;
     toggle.accessibilityLabel = title;
     [toggle setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [label setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
     [toggle addTarget:self action:selector forControlEvents:UIControlEventValueChanged];
 
     [container addSubview:label];
@@ -160,22 +218,17 @@
     self.heightValueLabel.text = [NSString stringWithFormat:@"%ld%%", (long)height];
 
     NSString *layout = [FSHSettings keyboardLayout];
-    if ([layout isEqualToString:@"original_no_number"]) {
-        [FSHSettings setKeyboardLayout:@"original"];
-        [FSHSettings setShowNumberRow:NO];
-        layout = @"original";
-    }
-    BOOL legacyLabelTop = [layout isEqualToString:@"standard_label_top"];
+    BOOL legacyNoNumber = [layout isEqualToString:@"original_no_number"];
     if ([layout isEqualToString:@"standard_spacious"]) {
         self.layoutSegment.selectedSegmentIndex = 1;
-    } else if ([layout isEqualToString:@"original"]) {
+    } else if ([layout isEqualToString:@"original"] || legacyNoNumber) {
         self.layoutSegment.selectedSegmentIndex = 2;
     } else {
         self.layoutSegment.selectedSegmentIndex = 0;
     }
 
-    self.numberRowSwitch.on = [FSHSettings showNumberRow];
-    self.labelTopSwitch.on = legacyLabelTop ? YES : [FSHSettings keyboardLabelTop];
+    self.numberRowSwitch.on = [FSHSettings effectiveShowNumberRow];
+    self.labelTopSwitch.on = [FSHSettings effectiveKeyboardLabelTop];
     self.leftShiftSwitch.on = [FSHSettings keyboardLeftShift];
     BOOL leftShiftApplicable = ([layout isEqualToString:@"standard"] || [layout isEqualToString:@"standard_spacious"] || [layout isEqualToString:@"standard_label_top"]);
     self.leftShiftSwitch.enabled = leftShiftApplicable;
@@ -208,7 +261,7 @@
         default: value = @"standard"; break;
     }
     [FSHSettings setKeyboardLayout:value];
-    self.leftShiftSwitch.enabled = ([value isEqualToString:@"standard"] || [value isEqualToString:@"standard_spacious"]);
+    [self refreshUI];
 }
 
 - (void)numberRowChanged:(UISwitch *)toggle {

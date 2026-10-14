@@ -8,12 +8,19 @@
 #import "FSHShiamyEngine.h"
 #import "FSHCinParser.h"
 #import "FSHSettings.h"
+#import "FSHKeyboardMetrics.h"
 #import "CodeSearchViewController.h"
 #import "SettingsViewController.h"
 #import "ViewController.h"
 
 @interface ViewController (CodeSearchTests)
 - (void)openCodeSearch;
+- (BOOL)textFieldShouldReturn:(UITextField *)textField;
+@end
+
+@interface SettingsViewController (KeyboardInputTests)
+- (void)refreshUI;
+- (void)layoutChanged:(UISegmentedControl *)segment;
 @end
 
 @class FSHFakeDocumentProxy;
@@ -29,12 +36,24 @@
 - (NSUInteger)beginEngineLoad;
 - (void)refreshCandidatesAndUI;
 - (void)refreshInputModeSwitchKey;
+- (void)applySettings;
 - (void)finishEngineLoad:(FSHShiamyEngine *)loadedEngine loaded:(BOOL)loaded error:(NSError *)error generation:(NSUInteger)generation;
+- (void)updatePreferredContentSize;
+- (CGFloat)preferredHeightLimitForScene;
 @end
 
 @interface FSHKeyboardView (KeyboardInputTests)
 - (void)handleKeyPress:(FSHKeyButton *)sender;
 - (void)handleGlobeEvent:(FSHKeyButton *)sender forEvent:(UIEvent *)event;
+- (void)handleBracketLongPress:(UILongPressGestureRecognizer *)gesture;
+@end
+
+@interface FSHStatefulLongPress : UILongPressGestureRecognizer
+@property (nonatomic, assign) UIGestureRecognizerState simulatedState;
+@end
+
+@implementation FSHStatefulLongPress
+- (UIGestureRecognizerState)state { return self.simulatedState; }
 @end
 
 @interface FSHTestEngine : FSHShiamyEngine
@@ -49,6 +68,17 @@
 }
 - (NSString *)shortestCodeForValue:(NSString *)value {
     return @"a";
+}
+@end
+
+@interface FSHManyCandidatesEngine : FSHTestEngine
+@property (nonatomic, copy) NSArray<FSHCandidate *> *fixtureCandidates;
+@end
+
+@implementation FSHManyCandidatesEngine
+- (NSArray<FSHCandidate *> *)prefixCandidatesForCode:(NSString *)code exactCount:(NSUInteger *)exactCount {
+    if (exactCount) { *exactCount = MIN((NSUInteger)10, self.fixtureCandidates.count); }
+    return code.length > 0 ? self.fixtureCandidates : @[];
 }
 @end
 
@@ -92,6 +122,7 @@
 @end
 
 static id FSHFixtureDefaults;
+static NSString *FSHFixtureSuiteName;
 
 @interface FSHDictionaryDefaults : NSObject
 @property (nonatomic, copy) NSDictionary<NSString *, id> *values;
@@ -109,6 +140,9 @@ static id FSHFixtureDefaults;
 @implementation FSHIsolatedSettings
 + (NSUserDefaults *)sharedDefaults {
     return (NSUserDefaults *)FSHFixtureDefaults;
+}
++ (BOOL)hasPersistedSettingForKey:(NSString *)key {
+    return [[FSHFixtureDefaults persistentDomainForName:FSHFixtureSuiteName] objectForKey:key] != nil;
 }
 @end
 
@@ -226,6 +260,14 @@ static id FSHFixtureDefaults;
     self.lastInputModeEventView = view;
     self.lastInputModeEvent = event;
 }
+@end
+
+@interface FSHHeightLimitInputController : FSHTestInputController
+@property (nonatomic, assign) CGFloat simulatedSceneLimit;
+@end
+
+@implementation FSHHeightLimitInputController
+- (CGFloat)preferredHeightLimitForScene { return self.simulatedSceneLimit; }
 @end
 
 @interface KeyboardInputTests : XCTestCase
@@ -417,6 +459,12 @@ static id FSHFixtureDefaults;
         XCTAssertEqual([FSHIsolatedSettings candidateInlineLimit], (NSInteger)10);
         XCTAssertEqual([FSHIsolatedSettings candidateMoreLimit], (NSInteger)200);
         XCTAssertEqualObjects([FSHIsolatedSettings keyboardLayout], @"standard");
+        XCTAssertTrue([FSHIsolatedSettings showNumberRow]);
+        XCTAssertTrue([FSHIsolatedSettings keyboardLeftShift]);
+        XCTAssertTrue([FSHIsolatedSettings showShortestCodeHint]);
+        XCTAssertTrue([FSHIsolatedSettings disableImeInSensitiveFields]);
+        XCTAssertFalse([FSHIsolatedSettings keyboardLabelTop]);
+        XCTAssertFalse([FSHIsolatedSettings sensitiveIncludeNoPersonalizedLearning]);
 
         for (id malformed in @[@"17", @"garbage", @[], @{}, @1.5]) {
             [FSHFixtureDefaults setObject:malformed forKey:@"keyboard_height_percent"];
@@ -492,6 +540,240 @@ static id FSHFixtureDefaults;
     } @finally {
         [suiteDefaults removePersistentDomainForName:suite];
         FSHFixtureDefaults = nil;
+    }
+}
+
+- (void)testLegacySettingsMigrationCopiesOnlyKnownPersistentValuesOnce {
+    NSString *suffix = [[NSUUID UUID] UUIDString];
+    NSString *legacyName = [@"freeshiamy.migration.legacy." stringByAppendingString:suffix];
+    NSString *sharedName = [@"freeshiamy.migration.shared." stringByAppendingString:suffix];
+    NSUserDefaults *legacy = [[NSUserDefaults alloc] initWithSuiteName:legacyName];
+    NSUserDefaults *shared = [[NSUserDefaults alloc] initWithSuiteName:sharedName];
+    @try {
+        [legacy removePersistentDomainForName:legacyName];
+        [shared removePersistentDomainForName:sharedName];
+        [shared registerDefaults:@{@"keyboard_height_percent": @100, @"show_number_row": @YES}];
+        NSDictionary *source = @{
+            @"keyboard_height_percent": @144,
+            @"keyboard_layout": @"standard_label_top",
+            @"show_number_row": @NO,
+            @"keyboard_label_top": @NO,
+            @"keyboard_left_shift": @NO,
+            @"candidate_inline_limit": @12,
+            @"candidate_more_limit": @350,
+            @"show_shortest_code_hint": @NO,
+            @"disable_ime_in_sensitive_fields": @NO,
+            @"sensitive_field_include_no_personalized_learning": @YES,
+            @"unrelated_key": @"leave behind",
+        };
+        [legacy setPersistentDomain:source forName:legacyName];
+        [FSHSettings migrateLegacySettingsFromDefaults:legacy suiteName:legacyName
+                                            toDefaults:shared suiteName:sharedName];
+        NSDictionary *migrated = [shared persistentDomainForName:sharedName];
+        XCTAssertEqual(migrated.count, (NSUInteger)10);
+        XCTAssertEqualObjects(migrated[@"keyboard_height_percent"], @144);
+        XCTAssertEqualObjects(migrated[@"keyboard_layout"], @"standard");
+        XCTAssertEqualObjects(migrated[@"keyboard_label_top"], @NO,
+                              @"An explicit source companion flag is preserved");
+        XCTAssertEqualObjects(migrated[@"show_number_row"], @NO);
+        XCTAssertNil(migrated[@"unrelated_key"]);
+        XCTAssertEqualObjects([legacy persistentDomainForName:legacyName], source);
+        [FSHSettings migrateLegacySettingsFromDefaults:legacy suiteName:legacyName
+                                            toDefaults:shared suiteName:sharedName];
+        XCTAssertEqualObjects([shared persistentDomainForName:sharedName], migrated);
+    } @finally {
+        [legacy removePersistentDomainForName:legacyName];
+        [shared removePersistentDomainForName:sharedName];
+    }
+}
+
+- (void)testLegacySettingsMigrationPreservesDestinationEvenWhenMalformed {
+    NSString *suffix = [[NSUUID UUID] UUIDString];
+    NSString *legacyName = [@"freeshiamy.migration.legacy." stringByAppendingString:suffix];
+    NSString *sharedName = [@"freeshiamy.migration.shared." stringByAppendingString:suffix];
+    NSUserDefaults *legacy = [[NSUserDefaults alloc] initWithSuiteName:legacyName];
+    NSUserDefaults *shared = [[NSUserDefaults alloc] initWithSuiteName:sharedName];
+    @try {
+        [legacy removePersistentDomainForName:legacyName];
+        [shared removePersistentDomainForName:sharedName];
+        [legacy setPersistentDomain:@{@"keyboard_layout": @"original_no_number",
+                                      @"show_number_row": @YES,
+                                      @"keyboard_height_percent": @180,
+                                      @"candidate_inline_limit": @12,
+                                      @"candidate_more_limit": @350}
+                         forName:legacyName];
+        [shared setPersistentDomain:@{@"keyboard_layout": @"standard_spacious",
+                                      @"show_number_row": @YES,
+                                      @"candidate_inline_limit": @"broken",
+                                      @"unrelated_key": @7}
+                         forName:sharedName];
+        [FSHSettings migrateLegacySettingsFromDefaults:legacy suiteName:legacyName
+                                            toDefaults:shared suiteName:sharedName];
+        NSDictionary *migrated = [shared persistentDomainForName:sharedName];
+        XCTAssertEqualObjects(migrated[@"keyboard_layout"], @"standard_spacious");
+        XCTAssertEqualObjects(migrated[@"show_number_row"], @YES);
+        XCTAssertEqualObjects(migrated[@"candidate_inline_limit"], @"broken");
+        XCTAssertEqualObjects(migrated[@"keyboard_height_percent"], @180);
+        XCTAssertEqualObjects(migrated[@"candidate_more_limit"], @350);
+        XCTAssertEqualObjects(migrated[@"unrelated_key"], @7);
+        FSHFixtureDefaults = shared;
+        XCTAssertEqual([FSHIsolatedSettings candidateInlineLimit], (NSInteger)10);
+    } @finally {
+        FSHFixtureDefaults = nil;
+        [legacy removePersistentDomainForName:legacyName];
+        [shared removePersistentDomainForName:sharedName];
+    }
+}
+
+- (void)testLegacyOriginalNoNumberMigrationDoesNotOverwriteExistingCompanionFlag {
+    NSString *suffix = [[NSUUID UUID] UUIDString];
+    NSString *legacyName = [@"freeshiamy.migration.legacy." stringByAppendingString:suffix];
+    NSString *sharedName = [@"freeshiamy.migration.shared." stringByAppendingString:suffix];
+    NSUserDefaults *legacy = [[NSUserDefaults alloc] initWithSuiteName:legacyName];
+    NSUserDefaults *shared = [[NSUserDefaults alloc] initWithSuiteName:sharedName];
+    @try {
+        [legacy removePersistentDomainForName:legacyName];
+        [shared removePersistentDomainForName:sharedName];
+        [legacy setPersistentDomain:@{@"keyboard_layout": @"original_no_number"}
+                         forName:legacyName];
+        [FSHSettings migrateLegacySettingsFromDefaults:legacy suiteName:legacyName
+                                            toDefaults:shared suiteName:sharedName];
+        XCTAssertEqualObjects([shared objectForKey:@"keyboard_layout"], @"original");
+        XCTAssertEqualObjects([shared objectForKey:@"show_number_row"], @NO);
+
+        [shared removePersistentDomainForName:sharedName];
+        [shared setObject:@YES forKey:@"show_number_row"];
+        [FSHSettings migrateLegacySettingsFromDefaults:legacy suiteName:legacyName
+                                            toDefaults:shared suiteName:sharedName];
+        XCTAssertEqualObjects([shared objectForKey:@"keyboard_layout"], @"original");
+        XCTAssertEqualObjects([shared objectForKey:@"show_number_row"], @YES);
+
+        [shared removePersistentDomainForName:sharedName];
+        [legacy setPersistentDomain:@{@"keyboard_layout": @"original_no_number", @"show_number_row": @YES}
+                         forName:legacyName];
+        [FSHSettings migrateLegacySettingsFromDefaults:legacy suiteName:legacyName
+                                            toDefaults:shared suiteName:sharedName];
+        XCTAssertEqualObjects([shared objectForKey:@"keyboard_layout"], @"original");
+        XCTAssertEqualObjects([shared objectForKey:@"show_number_row"], @YES,
+                              @"Explicit source companion wins over implied legacy setting");
+    } @finally {
+        [legacy removePersistentDomainForName:legacyName];
+        [shared removePersistentDomainForName:sharedName];
+    }
+}
+
+- (void)testMigrationSkipsMalformedSourceAndLeavesDestinationLegacyFlagsForReadOnlyResolution {
+    NSString *suffix = [[NSUUID UUID] UUIDString];
+    NSString *legacyName = [@"freeshiamy.migration.legacy." stringByAppendingString:suffix];
+    NSString *sharedName = [@"freeshiamy.migration.shared." stringByAppendingString:suffix];
+    NSUserDefaults *legacy = [[NSUserDefaults alloc] initWithSuiteName:legacyName];
+    NSUserDefaults *shared = [[NSUserDefaults alloc] initWithSuiteName:sharedName];
+    @try {
+        [legacy removePersistentDomainForName:legacyName];
+        [shared removePersistentDomainForName:sharedName];
+        [legacy setPersistentDomain:@{@"keyboard_layout": @"unknown",
+                                      @"keyboard_height_percent": @"250",
+                                      @"candidate_inline_limit": @12.5,
+                                      @"candidate_more_limit": @999,
+                                      @"show_number_row": @"false",
+                                      @"keyboard_label_top": @[],
+                                      @"disable_ime_in_sensitive_fields": @2,
+                                      @"keyboard_left_shift": @NO,
+                                      @"unknown_key": @"unmigrated"}
+                         forName:legacyName];
+        [shared registerDefaults:@{@"show_number_row": @YES, @"keyboard_left_shift": @YES}];
+        [FSHSettings migrateLegacySettingsFromDefaults:legacy suiteName:legacyName
+                                            toDefaults:shared suiteName:sharedName];
+        NSDictionary *migrated = [shared persistentDomainForName:sharedName];
+        XCTAssertEqual(migrated.count, (NSUInteger)2);
+        XCTAssertEqualObjects(migrated[@"candidate_more_limit"], @999);
+        XCTAssertEqualObjects(migrated[@"keyboard_left_shift"], @NO);
+        XCTAssertNil(migrated[@"show_number_row"]);
+        XCTAssertNil(migrated[@"unknown_key"]);
+        FSHFixtureDefaults = shared;
+        FSHFixtureSuiteName = sharedName;
+        XCTAssertEqual([FSHIsolatedSettings candidateMoreLimit], (NSInteger)500);
+        XCTAssertTrue([FSHIsolatedSettings showNumberRow]);
+        XCTAssertTrue([FSHIsolatedSettings disableImeInSensitiveFields]);
+        [shared setPersistentDomain:@{@"keyboard_layout": @"original_no_number",
+                                      @"show_number_row": @YES,
+                                      @"disable_ime_in_sensitive_fields": @"invalid"}
+                         forName:sharedName];
+        XCTAssertTrue([FSHIsolatedSettings effectiveShowNumberRow],
+                      @"Explicit destination companion wins over legacy layout");
+        XCTAssertTrue([FSHIsolatedSettings disableImeInSensitiveFields],
+                      @"Malformed destination boolean uses its documented default");
+        [shared removeObjectForKey:@"show_number_row"];
+        XCTAssertFalse([FSHIsolatedSettings effectiveShowNumberRow],
+                       @"Legacy layout implies no number row only when flag is absent");
+        [shared setPersistentDomain:@{@"keyboard_layout": @"standard_label_top",
+                                      @"keyboard_label_top": @NO}
+                         forName:sharedName];
+        XCTAssertFalse([FSHIsolatedSettings effectiveKeyboardLabelTop]);
+        [shared removeObjectForKey:@"keyboard_label_top"];
+        XCTAssertTrue([FSHIsolatedSettings effectiveKeyboardLabelTop]);
+    } @finally {
+        FSHFixtureDefaults = nil;
+        FSHFixtureSuiteName = nil;
+        [legacy removePersistentDomainForName:legacyName];
+        [shared removePersistentDomainForName:sharedName];
+    }
+}
+
+- (void)testExtensionSettingsRefreshDoesNotPersistValues {
+    NSUserDefaults *shared = [FSHSettings sharedDefaults];
+    NSString *suiteName = @"group.osku.me.freeshiamy_ios";
+    NSDictionary *original = [shared persistentDomainForName:suiteName];
+    @try {
+        for (NSString *legacyLayout in @[@"standard_label_top", @"original_no_number"]) {
+            [shared setPersistentDomain:@{@"keyboard_layout": legacyLayout} forName:suiteName];
+            NSDictionary *before = [shared persistentDomainForName:suiteName];
+            [self.controller applySettings];
+            [self.controller applySettings];
+            (void)[FSHSettings keyboardLayout];
+            (void)[FSHSettings effectiveShowNumberRow];
+            (void)[FSHSettings effectiveKeyboardLabelTop];
+            NSDictionary *after = [shared persistentDomainForName:suiteName];
+            XCTAssertEqualObjects(after, before, @"Extension read path persisted settings for %@", legacyLayout);
+        }
+    } @finally {
+        if (original) {
+            [shared setPersistentDomain:original forName:suiteName];
+        } else {
+            [shared removePersistentDomainForName:suiteName];
+        }
+    }
+}
+
+- (void)testChangingLegacyLayoutRefreshesImpliedSettingsControls {
+    NSString *suiteName = @"group.osku.me.freeshiamy_ios";
+    NSUserDefaults *shared = [FSHSettings sharedDefaults];
+    NSDictionary *original = [shared persistentDomainForName:suiteName];
+    @try {
+        [shared setPersistentDomain:@{@"keyboard_layout": @"original_no_number"} forName:suiteName];
+        SettingsViewController *settings = [[SettingsViewController alloc] init];
+        [settings loadViewIfNeeded];
+        [settings refreshUI];
+        UISwitch *numberRow = [settings valueForKey:@"numberRowSwitch"];
+        UISegmentedControl *segment = [settings valueForKey:@"layoutSegment"];
+        XCTAssertFalse(numberRow.isOn);
+        segment.selectedSegmentIndex = 0;
+        [settings layoutChanged:segment];
+        XCTAssertTrue(numberRow.isOn, @"Switch should refresh when implied legacy value no longer applies");
+
+        [shared setPersistentDomain:@{@"keyboard_layout": @"standard_label_top"} forName:suiteName];
+        [settings refreshUI];
+        UISwitch *labelTop = [settings valueForKey:@"labelTopSwitch"];
+        XCTAssertTrue(labelTop.isOn);
+        segment.selectedSegmentIndex = 1;
+        [settings layoutChanged:segment];
+        XCTAssertFalse(labelTop.isOn, @"Switch should refresh after leaving legacy label-top layout");
+    } @finally {
+        if (original) {
+            [shared setPersistentDomain:original forName:suiteName];
+        } else {
+            [shared removePersistentDomainForName:suiteName];
+        }
     }
 }
 
@@ -1358,6 +1640,137 @@ static id FSHFixtureDefaults;
     XCTAssertEqual(self.controller.dismissCount, (NSUInteger)0);
 }
 
+- (void)testLetterPunctuationExposesBracketRootsWithoutChangingPrimaryKeys {
+    FSHShiamyEngine *engine = [[FSHShiamyEngine alloc] init];
+    NSError *error = nil;
+    XCTAssertTrue([engine loadFromBundle:[NSBundle mainBundle] error:&error], @"%@", error);
+    [self.controller setValue:engine forKey:@"engine"];
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+
+    for (NSString *root in @[@"[", @"]"]) {
+        NSUInteger exactCount = 0;
+        NSArray<FSHCandidate *> *matches = [engine prefixCandidatesForCode:root exactCount:&exactCount];
+        XCTAssertEqual(exactCount, (NSUInteger)8, @"Root %@", root);
+        XCTAssertGreaterThan(matches.count, exactCount);
+        NSString *doubled = [root stringByAppendingString:root];
+        XCTAssertGreaterThan([engine prefixCandidatesForCode:doubled exactCount:NULL].count, (NSUInteger)0);
+    }
+    XCTAssertEqualObjects([engine prefixCandidatesForCode:@"[f" exactCount:NULL].firstObject.value, @"【");
+    XCTAssertEqualObjects([engine prefixCandidatesForCode:@"]f" exactCount:NULL].firstObject.value, @"】");
+
+    self.keyboard.mode = FSHKeyboardModeLetters;
+    for (NSString *punctuation in @[@",", @"."]) {
+        NSString *root = [punctuation isEqualToString:@","] ? @"[" : @"]";
+        FSHKeyButton *button = [self keyWithOutput:punctuation inKeyboard:self.keyboard];
+        XCTAssertNotNil(button);
+        XCTAssertEqualObjects(button.alternateHint, root);
+        XCTAssertEqualObjects(button.accessibilityIdentifier,
+                              [root isEqualToString:@"["] ? @"key.root.open" : @"key.root.close");
+        XCTAssertEqual(button.accessibilityCustomActions.count, (NSUInteger)1);
+        [[self rawBuffer] setString:@""];
+        [self.controller refreshCandidatesAndUI];
+        [button sendActionsForControlEvents:UIControlEventTouchUpInside];
+        XCTAssertEqualObjects([self rawBuffer], punctuation, @"Primary punctuation remains a code key");
+        [[self rawBuffer] setString:@""];
+        [self.controller refreshCandidatesAndUI];
+        UIAccessibilityCustomAction *alternate = button.accessibilityCustomActions.firstObject;
+        XCTAssertTrue(alternate.actionHandler(alternate));
+        XCTAssertEqualObjects([self rawBuffer], root);
+        XCTAssertEqualObjects(self.proxy.text, @"");
+        XCTAssertEqual([[self.controller valueForKey:@"exactCount"] unsignedIntegerValue], (NSUInteger)8);
+    }
+
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertTrue(self.keyboard.shiftOn);
+    FSHKeyButton *shiftedComma = [self keyWithOutput:@"," inKeyboard:self.keyboard];
+    [[self rawBuffer] setString:@""];
+    [self.controller refreshCandidatesAndUI];
+    UIAccessibilityCustomAction *shiftedAlternate = shiftedComma.accessibilityCustomActions.firstObject;
+    XCTAssertTrue(shiftedAlternate.actionHandler(shiftedAlternate));
+    XCTAssertEqualObjects([self rawBuffer], @"[");
+    XCTAssertTrue(self.keyboard.shiftOn, @"Bracket roots must not consume one-shot Shift");
+
+    for (NSString *punctuation in @[@",", @"."]) {
+        FSHKeyButton *button = [self keyWithOutput:punctuation inKeyboard:self.keyboard];
+        FSHStatefulLongPress *press = [[FSHStatefulLongPress alloc] init];
+        [button addGestureRecognizer:press];
+        [[self rawBuffer] setString:@""];
+        [self.controller refreshCandidatesAndUI];
+        for (NSNumber *state in @[@(UIGestureRecognizerStateBegan), @(UIGestureRecognizerStateChanged),
+                                 @(UIGestureRecognizerStateEnded), @(UIGestureRecognizerStateCancelled)]) {
+            press.simulatedState = state.integerValue;
+            [self.keyboard handleBracketLongPress:press];
+        }
+        XCTAssertEqualObjects([self rawBuffer],
+                              [punctuation isEqualToString:@","] ? @"[" : @"]",
+                              @"One long press must append exactly one bracket without primary punctuation");
+        [button removeGestureRecognizer:press];
+    }
+
+    self.keyboard.mode = FSHKeyboardModeSymbols;
+    [[self rawBuffer] setString:@""];
+    [self.proxy.text setString:@""];
+    [self.controller refreshCandidatesAndUI];
+    for (NSString *bracket in @[@"[", @"]"]) {
+        FSHKeyButton *button = [self keyWithOutput:bracket inKeyboard:self.keyboard];
+        XCTAssertNotNil(button);
+        XCTAssertNil(button.alternateHint);
+        [button sendActionsForControlEvents:UIControlEventTouchUpInside];
+        XCTAssertEqualObjects([self rawBuffer], @"");
+    }
+    XCTAssertEqualObjects(self.proxy.text, @"[]");
+}
+
+- (void)testBracketRootHintsFitAllLetterLayoutsWithoutNarrowingKeys {
+    FSHKeyboardView *keyboard = [[FSHKeyboardView alloc] initWithFrame:CGRectMake(0, 0, 320, 216)];
+    keyboard.mode = FSHKeyboardModeLetters;
+    for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious),
+                              @(FSHKeyboardLayoutOriginal), @(FSHKeyboardLayoutOriginalNoNumber)]) {
+        keyboard.layout = layout.integerValue;
+        for (NSNumber *labelTop in @[@NO, @YES]) {
+            keyboard.labelTop = labelTop.boolValue;
+            for (NSNumber *numbers in @[@NO, @YES]) {
+                keyboard.showNumberRow = numbers.boolValue;
+                for (NSNumber *globe in @[@NO, @YES]) {
+                    keyboard.showsGlobe = globe.boolValue;
+                    for (NSNumber *width in @[@320, @375, @768, @1024]) {
+                        keyboard.frame = CGRectMake(0, 0, width.doubleValue, 216);
+                        [keyboard setNeedsLayout];
+                        [keyboard layoutIfNeeded];
+                        FSHKeyButton *z = [self keyWithOutput:@"z" inKeyboard:keyboard];
+                        XCTAssertNotNil(z);
+                        for (NSString *punctuation in @[@",", @"."]) {
+                            FSHKeyButton *button = [self keyWithOutput:punctuation inKeyboard:keyboard];
+                            XCTAssertNotNil(button);
+                            XCTAssertTrue(isfinite(CGRectGetWidth(button.frame)));
+                            XCTAssertEqualWithAccuracy(CGRectGetWidth(button.frame), CGRectGetWidth(z.frame), 0.5,
+                                                       @"Punctuation keeps same-weight Z-row geometry");
+                            XCTAssertGreaterThan(CGRectGetWidth(button.frame), 0.0);
+                            XCTAssertGreaterThanOrEqual(CGRectGetMinX(button.frame), -0.5);
+                            XCTAssertLessThanOrEqual(CGRectGetMaxX(button.frame), CGRectGetWidth(keyboard.bounds) + 0.5);
+                            XCTAssertFalse(CGRectIsEmpty(button.titleLabel.frame));
+                            UILabel *hint = [button valueForKey:@"alternateHintLabel"];
+                            XCTAssertFalse(CGRectIsEmpty(hint.frame));
+                            NSUInteger appLongPresses = 0;
+                            for (UIGestureRecognizer *recognizer in button.gestureRecognizers) {
+                                if ([recognizer isKindOfClass:UILongPressGestureRecognizer.class] &&
+                                    fabs(((UILongPressGestureRecognizer *)recognizer).minimumPressDuration - 0.4) < 0.001) {
+                                    appLongPresses++;
+                                    XCTAssertTrue(recognizer.cancelsTouchesInView);
+                                }
+                            }
+                            XCTAssertEqual(appLongPresses, (NSUInteger)1);
+                            XCTAssertFalse(CGRectIntersectsRect(button.titleLabel.frame, hint.frame),
+                                           @"Primary/hint overlap at width %@ layout %@ labelTop %@", width, layout, labelTop);
+                            XCTAssertLessThanOrEqual(CGRectGetMaxX(hint.frame), CGRectGetWidth(button.bounds) + 0.5);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 - (void)testReturnKeyLabelsFollowHostTraitsInEveryModeWithoutLabelOnlyRebuild {
     FSHCountingKeyboardView *keyboard = [[FSHCountingKeyboardView alloc] initWithFrame:CGRectMake(0, 0, 320, 194.4)];
     for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious),
@@ -1505,6 +1918,419 @@ static id FSHFixtureDefaults;
         XCTAssertEqualObjects([self rawBuffer], expectedRaw);
         XCTAssertEqualObjects(self.proxy.text, hostBeforeComposition);
     }
+}
+
+- (void)testConstrainedKeyboardGeometryRemainsFiniteAcrossWidthsHeightsAndModes {
+    FSHKeyboardView *keyboard = [[FSHKeyboardView alloc] initWithFrame:CGRectZero];
+    for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious),
+                              @(FSHKeyboardLayoutOriginal), @(FSHKeyboardLayoutOriginalNoNumber)]) {
+        keyboard.layout = layout.integerValue;
+        for (NSNumber *mode in @[@(FSHKeyboardModeLetters), @(FSHKeyboardModeSymbols),
+                                 @(FSHKeyboardModeSymbolsShift), @(FSHKeyboardModeEmoji)]) {
+            keyboard.mode = mode.integerValue;
+            for (NSNumber *labelTop in @[@NO, @YES]) {
+              keyboard.labelTop = labelTop.boolValue;
+              for (NSNumber *width in @[@0.0, @1.0, @320.0, @375.0, @393.0, @768.0, @1024.0]) {
+                for (NSNumber *height in @[@0.0, @1.0, @160.0, @216.0, @253.0, @320.0]) {
+                    keyboard.frame = CGRectMake(0, 0, width.doubleValue, height.doubleValue);
+                    [keyboard setNeedsLayout];
+                    [keyboard layoutIfNeeded];
+                    for (NSArray<FSHKeyButton *> *row in [keyboard valueForKey:@"rowButtons"]) {
+                        CGFloat priorRight = 0.0;
+                        for (FSHKeyButton *button in row) {
+                            XCTAssertTrue(isfinite(button.frame.origin.x) && isfinite(button.frame.origin.y));
+                            XCTAssertTrue(isfinite(button.frame.size.width) && isfinite(button.frame.size.height));
+                            XCTAssertGreaterThanOrEqual(button.frame.size.width, 0.0);
+                            XCTAssertGreaterThanOrEqual(button.frame.size.height, 0.0);
+                            XCTAssertGreaterThanOrEqual(CGRectGetMinX(button.frame) + 0.5, priorRight);
+                            XCTAssertLessThanOrEqual(CGRectGetMaxX(button.frame), width.doubleValue + 0.5);
+                            XCTAssertLessThanOrEqual(CGRectGetMaxY(button.frame), height.doubleValue + 0.5);
+                            priorRight = CGRectGetMaxX(button.frame);
+                        }
+                    }
+                }
+            }
+            }
+        }
+    }
+}
+
+- (void)testPreferredHeightSceneCapRestoresAfterRotationWithoutChangingSetting {
+    XCTAssertEqualWithAccuracy(FSHSceneKeyboardHeightLimit(390.0, 0.0, 21.0), 221.4, 0.01);
+    XCTAssertEqualWithAccuracy(FSHSceneKeyboardHeightLimit(1400.0, 24.0, 20.0), 813.6, 0.01);
+    FSHHeightLimitInputController *controller = [[FSHHeightLimitInputController alloc] init];
+    controller.fakeProxy = [[FSHFakeDocumentProxy alloc] init];
+    controller.simulatedSceneLimit = CGFLOAT_MAX;
+    [controller loadViewIfNeeded];
+    FSHCandidateBarView *bar = [controller valueForKey:@"candidateBar"];
+    NSUserDefaults *defaults = [FSHSettings sharedDefaults];
+    id storedPercent = [defaults persistentDomainForName:@"group.osku.me.freeshiamy_ios"][@"keyboard_height_percent"];
+    @try {
+        for (NSNumber *percent in @[@90, @100, @220]) {
+            [FSHSettings setKeyboardHeightPercent:percent.integerValue];
+            for (NSNumber *expanded in @[@NO, @YES]) {
+                bar.expanded = expanded.boolValue;
+                controller.simulatedSceneLimit = CGFLOAT_MAX;
+                [controller updatePreferredContentSize];
+                CGFloat desired = 216.0 * percent.doubleValue / 100.0 + bar.barHeight +
+                                  (expanded.boolValue ? bar.expandedHeight : 0.0);
+                XCTAssertEqualWithAccuracy(controller.preferredContentSize.height, desired, 0.5);
+                controller.simulatedSceneLimit = FSHSceneKeyboardHeightLimit(390.0, 0.0, 21.0);
+                [controller updatePreferredContentSize];
+                XCTAssertEqualWithAccuracy(controller.preferredContentSize.height,
+                                           MIN(desired, controller.simulatedSceneLimit), 0.5);
+                controller.simulatedSceneLimit = FSHSceneKeyboardHeightLimit(1400.0, 24.0, 20.0);
+                [controller updatePreferredContentSize];
+                XCTAssertEqualWithAccuracy(controller.preferredContentSize.height, desired, 0.5);
+                XCTAssertEqual([FSHSettings keyboardHeightPercent], percent.integerValue);
+            }
+        }
+    } @finally {
+        if (storedPercent) {
+            [defaults setObject:storedPercent forKey:@"keyboard_height_percent"];
+        } else {
+            [defaults removeObjectForKey:@"keyboard_height_percent"];
+        }
+    }
+}
+
+- (void)testSettingsSegmentsScaleAndFitAtAccessibilitySizes {
+    UIWindowScene *scene = nil;
+    for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
+        if ([candidate isKindOfClass:UIWindowScene.class] &&
+            candidate.activationState == UISceneActivationStateForegroundActive) {
+            scene = (UIWindowScene *)candidate;
+            break;
+        }
+    }
+    XCTAssertNotNil(scene);
+    if (!scene) { return; }
+    UIWindow *oldKeyWindow = nil;
+    for (UIWindow *candidate in scene.windows) {
+        if (candidate.isKeyWindow) { oldKeyWindow = candidate; break; }
+    }
+    UIViewController *host = [[UIViewController alloc] init];
+    host.view.frame = CGRectMake(0, 0, 320, 700);
+    SettingsViewController *settings = [[SettingsViewController alloc] init];
+    [host addChildViewController:settings];
+    settings.view.translatesAutoresizingMaskIntoConstraints = NO;
+    [host.view addSubview:settings.view];
+    [settings didMoveToParentViewController:host];
+    [NSLayoutConstraint activateConstraints:@[
+        [settings.view.leadingAnchor constraintEqualToAnchor:host.view.leadingAnchor],
+        [settings.view.widthAnchor constraintEqualToConstant:320.0],
+        [settings.view.topAnchor constraintEqualToAnchor:host.view.topAnchor],
+        [settings.view.bottomAnchor constraintEqualToAnchor:host.view.bottomAnchor],
+    ]];
+    UISegmentedControl *segment = [settings valueForKey:@"layoutSegment"];
+    NSInteger selection = segment.selectedSegmentIndex;
+    UIWindow *window = [[UIWindow alloc] initWithWindowScene:scene];
+    window.frame = scene.coordinateSpace.bounds;
+    window.rootViewController = host;
+    [window makeKeyAndVisible];
+    XCTAssertTrue([self waitForView:settings.view toAttachToWindow:window]);
+    [host setOverrideTraitCollection:[UITraitCollection traitCollectionWithPreferredContentSizeCategory:UIContentSizeCategoryAccessibilityXXXL]
+              forChildViewController:settings];
+    [host.view layoutIfNeeded];
+    UIFont *font = [segment titleTextAttributesForState:UIControlStateNormal][NSFontAttributeName];
+    XCTAssertGreaterThan(font.pointSize, 17.0);
+    for (NSString *title in @[@"標準", @"間距", @"原始"]) {
+        XCTAssertLessThanOrEqual([title sizeWithAttributes:@{NSFontAttributeName: font}].width,
+                                 CGRectGetWidth(segment.bounds) / 3.0 - 16.0 + 0.5);
+    }
+    XCTAssertEqual(segment.selectedSegmentIndex, selection);
+    XCTAttachment *shot = [XCTAttachment attachmentWithImage:[self snapshotOfWindow:window]];
+    shot.name = @"Accessibility XXXL Settings in 320pt viewport";
+    shot.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:shot];
+    [window setHidden:YES];
+    [oldKeyWindow makeKeyAndVisible];
+}
+
+- (void)testHostActionTitlesWrapInAttachedAccessibilityViewport {
+    UIWindowScene *scene = nil;
+    for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
+        if ([candidate isKindOfClass:UIWindowScene.class] &&
+            candidate.activationState == UISceneActivationStateForegroundActive) {
+            scene = (UIWindowScene *)candidate;
+            break;
+        }
+    }
+    XCTAssertNotNil(scene);
+    if (!scene) { return; }
+    UIWindow *oldKeyWindow = nil;
+    for (UIWindow *candidate in scene.windows) {
+        if (candidate.isKeyWindow) { oldKeyWindow = candidate; break; }
+    }
+    UIViewController *host = [[UIViewController alloc] init];
+    ViewController *panel = [[ViewController alloc] init];
+    [host addChildViewController:panel];
+    panel.view.translatesAutoresizingMaskIntoConstraints = NO;
+    [host.view addSubview:panel.view];
+    [panel didMoveToParentViewController:host];
+    [NSLayoutConstraint activateConstraints:@[
+        [panel.view.leadingAnchor constraintEqualToAnchor:host.view.leadingAnchor],
+        [panel.view.widthAnchor constraintEqualToConstant:320.0],
+        [panel.view.topAnchor constraintEqualToAnchor:host.view.topAnchor],
+        [panel.view.bottomAnchor constraintEqualToAnchor:host.view.bottomAnchor],
+    ]];
+    UIWindow *window = [[UIWindow alloc] initWithWindowScene:scene];
+    window.frame = scene.coordinateSpace.bounds;
+    window.rootViewController = host;
+    [window makeKeyAndVisible];
+    XCTAssertTrue([self waitForView:panel.view toAttachToWindow:window]);
+    [host setOverrideTraitCollection:[UITraitCollection traitCollectionWithPreferredContentSizeCategory:UIContentSizeCategoryAccessibilityXXXL]
+              forChildViewController:panel];
+    [host.view layoutIfNeeded];
+    [host.view layoutIfNeeded];
+    NSArray<UIButton *> *buttons = [panel valueForKey:@"actionButtons"];
+    XCTAssertGreaterThan(buttons.count, (NSUInteger)0);
+    for (UIButton *button in buttons) {
+        CGFloat textWidth = CGRectGetWidth(button.bounds) - button.contentEdgeInsets.left - button.contentEdgeInsets.right;
+        CGRect needed = [[button titleForState:UIControlStateNormal]
+            boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX)
+                         options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
+                      attributes:@{NSFontAttributeName: button.titleLabel.font} context:nil];
+        CGFloat minimum = ceil(CGRectGetHeight(needed)) + button.contentEdgeInsets.top + button.contentEdgeInsets.bottom;
+        XCTAssertGreaterThanOrEqual(CGRectGetHeight(button.bounds) + 0.5, minimum,
+                                    @"Action title should wrap without clipping: %@", button.currentTitle);
+    }
+    UIButton *longAction = nil;
+    for (UIButton *button in buttons) {
+        if ([[button titleForState:UIControlStateNormal] isEqualToString:@"開啟系統設定（鍵盤）"]) {
+            longAction = button;
+            break;
+        }
+    }
+    XCTAssertNotNil(longAction);
+    UIScrollView *scroll = (UIScrollView *)panel.view.subviews.firstObject;
+    [scroll scrollRectToVisible:[longAction convertRect:longAction.bounds toView:scroll] animated:NO];
+    [host.view layoutIfNeeded];
+    CGRect visibleAction = [longAction convertRect:longAction.bounds toView:scroll];
+    XCTAssertTrue(CGRectIntersectsRect(visibleAction, scroll.bounds));
+    XCTAttachment *shot = [XCTAttachment attachmentWithImage:[self snapshotOfWindow:window]];
+    shot.name = @"Accessibility XXXL host panel in 320pt viewport";
+    shot.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:shot];
+    [window setHidden:YES];
+    [oldKeyWindow makeKeyAndVisible];
+}
+
+- (void)testExpandedCandidateViewportUsesAssignedHeightAndPreservesScroll {
+    FSHCandidateBarView *bar = [[FSHCandidateBarView alloc] initWithFrame:CGRectZero];
+    UIView *host = [self hostForCandidateBar:bar width:320.0 height:250.0];
+    NSLayoutConstraint *height = [bar.heightAnchor constraintEqualToConstant:217.5];
+    height.active = YES;
+    [bar updateRawBuffer:@"a" candidates:[self candidatesWithCount:80 code:@"a"]
+             exactCount:10 inlineLimit:10 moreLimit:80 hintText:nil];
+    bar.expanded = YES;
+    [host layoutIfNeeded];
+    UIScrollView *more = [bar valueForKey:@"moreScrollView"];
+    more.contentOffset = CGPointMake(0.0, 60.0);
+    height.constant = bar.barHeight + 32.0;
+    [bar applyAvailableHeight:height.constant];
+    [host layoutIfNeeded];
+    [bar layoutIfNeeded];
+    XCTAssertEqualWithAccuracy(CGRectGetHeight(bar.bounds), height.constant, 0.5);
+    XCTAssertEqualWithAccuracy(CGRectGetHeight(more.bounds), 32.0, 0.5);
+    XCTAssertEqualWithAccuracy(more.contentOffset.y, 60.0, 0.5);
+    XCTAssertTrue(bar.isExpanded);
+}
+
+- (void)testAttachedHostHeightAndDynamicTypeAdaptWithoutRebuildingComposition {
+    UIWindowScene *scene = nil;
+    for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
+        if ([candidate isKindOfClass:UIWindowScene.class] &&
+            candidate.activationState == UISceneActivationStateForegroundActive) {
+            scene = (UIWindowScene *)candidate;
+            break;
+        }
+    }
+    XCTAssertNotNil(scene);
+    if (!scene) { return; }
+    UIWindow *oldKeyWindow = nil;
+    for (UIWindow *candidate in scene.windows) {
+        if (candidate.isKeyWindow) { oldKeyWindow = candidate; break; }
+    }
+    FSHTestInputController *controller = [[FSHTestInputController alloc] init];
+    controller.fakeProxy = [[FSHFakeDocumentProxy alloc] init];
+    [controller loadViewIfNeeded];
+    [controller setValue:@999 forKey:@"engineLoadGeneration"];
+    UIViewController *host = [[UIViewController alloc] init];
+    [host addChildViewController:controller];
+    controller.view.translatesAutoresizingMaskIntoConstraints = NO;
+    [host.view addSubview:controller.view];
+    [controller didMoveToParentViewController:host];
+    NSLayoutConstraint *width = [controller.view.widthAnchor constraintEqualToConstant:320.0];
+    NSLayoutConstraint *height = [controller.view.heightAnchor constraintEqualToConstant:253.0];
+    height.priority = 999;
+    [NSLayoutConstraint activateConstraints:@[
+        [controller.view.leadingAnchor constraintEqualToAnchor:host.view.leadingAnchor],
+        [controller.view.topAnchor constraintEqualToAnchor:host.view.safeAreaLayoutGuide.topAnchor],
+        width, height,
+    ]];
+    UIWindow *window = [[UIWindow alloc] initWithWindowScene:scene];
+    window.frame = scene.coordinateSpace.bounds;
+    window.rootViewController = host;
+    [window makeKeyAndVisible];
+    XCTAssertTrue([self waitForView:controller.view toAttachToWindow:window]);
+
+    FSHKeyboardView *keyboard = [controller valueForKey:@"keyboardView"];
+    FSHCandidateBarView *bar = [controller valueForKey:@"candidateBar"];
+    keyboard.layout = FSHKeyboardLayoutStandard;
+    keyboard.showNumberRow = YES;
+    FSHKeyButton *key = [self keyWithOutput:@"q" inKeyboard:keyboard];
+    CGFloat defaultFont = key.titleLabel.font.pointSize;
+    NSMutableString *raw = [controller valueForKey:@"rawBuffer"];
+    [raw setString:@"ab"];
+    FSHManyCandidatesEngine *fixture = [[FSHManyCandidatesEngine alloc] init];
+    fixture.fixtureCandidates = [self candidatesWithCount:80 code:@"ab"];
+    [controller setValue:fixture forKey:@"engine"];
+    [controller setValue:@1 forKey:@"engineLoadState"];
+    [controller setValue:@10 forKey:@"inlineLimit"];
+    [controller setValue:@80 forKey:@"moreLimit"];
+    [controller refreshCandidatesAndUI];
+    UIButton *moreControl = [bar valueForKey:@"moreButton"];
+    [moreControl sendActionsForControlEvents:UIControlEventTouchUpInside];
+    XCTAssertTrue(bar.isExpanded);
+    [host setOverrideTraitCollection:[UITraitCollection traitCollectionWithPreferredContentSizeCategory:UIContentSizeCategoryAccessibilityXXXL]
+              forChildViewController:controller];
+    UIScrollView *moreScroll = [bar valueForKey:@"moreScrollView"];
+    for (NSNumber *rootWidth in @[@320.0, @375.0, @393.0, @768.0]) {
+        width.constant = rootWidth.doubleValue;
+        for (NSNumber *rootHeight in @[@160.0, @216.0, @253.0, @320.0]) {
+            height.constant = rootHeight.doubleValue;
+            [host.view setNeedsLayout];
+            [host.view layoutIfNeeded];
+            [controller.view layoutIfNeeded];
+            XCTAssertEqualWithAccuracy(CGRectGetWidth(controller.view.bounds), rootWidth.doubleValue, 0.5);
+            XCTAssertEqualWithAccuracy(CGRectGetHeight(controller.view.bounds), rootHeight.doubleValue, 0.5);
+            XCTAssertEqualWithAccuracy(CGRectGetMaxY(keyboard.frame), rootHeight.doubleValue, 0.5);
+            XCTAssertEqualWithAccuracy(CGRectGetHeight(bar.bounds) + CGRectGetHeight(keyboard.bounds),
+                                       rootHeight.doubleValue, 0.5);
+            UIButton *moreButton = [bar valueForKey:@"moreButton"];
+            XCTAssertEqualWithAccuracy(CGRectGetWidth(moreButton.bounds), 44.0, 0.5);
+            XCTAssertEqualWithAccuracy(CGRectGetHeight(moreButton.bounds), bar.barHeight, 0.5);
+            XCTAssertGreaterThanOrEqual(CGRectGetHeight(moreScroll.bounds),
+                                        MIN(FSHCandidateRowDesiredHeight(controller.traitCollection),
+                                            MAX(0.0, rootHeight.doubleValue - bar.barHeight)) - 0.5);
+            UIButton *firstCandidate = [[bar valueForKey:@"moreButtonPool"] firstObject];
+            XCTAssertLessThanOrEqual(firstCandidate.titleLabel.font.lineHeight + 2.0,
+                                     CGRectGetHeight(firstCandidate.bounds) + 0.5);
+            CGFloat roomBelowBar = MAX(0.0, rootHeight.doubleValue - bar.barHeight);
+            CGFloat keyFloor = MIN(roomBelowBar, keyboard.minimumUsableHeight);
+            CGFloat ordinaryViewport = MIN(bar.expandedHeight, MAX(0.0, roomBelowBar - keyFloor));
+            BOOL expectedCompact = ordinaryViewport < FSHCandidateRowDesiredHeight(controller.traitCollection);
+            XCTAssertEqual(keyboard.hidden, expectedCompact);
+            XCTAssertEqual(keyboard.accessibilityElementsHidden, keyboard.hidden);
+            UIStackView *inlineStack = [bar valueForKey:@"candidateStack"];
+            UIButton *inlineFirst = (UIButton *)inlineStack.arrangedSubviews.firstObject;
+            XCTAssertEqual([inlineFirst.accessibilityHint containsString:@"數字 0"], !expectedCompact);
+            XCTAssertEqual([inlineFirst.accessibilityHint containsString:@"空白鍵"], !expectedCompact);
+            if (rootHeight.doubleValue == 160.0) {
+                moreScroll.contentOffset = CGPointMake(0.0, 60.0);
+                XCTAssertEqualWithAccuracy(moreScroll.contentOffset.y, 60.0, 0.5);
+            }
+            if (rootWidth.doubleValue == 320.0 && rootHeight.doubleValue == 160.0) {
+                NSArray<UIButton *> *moreButtons = [bar valueForKey:@"moreButtonPool"];
+                UIButton *last = moreButtons.lastObject;
+                XCTAssertEqual(last.tag, 79);
+                CGFloat end = MAX(0.0, moreScroll.contentSize.height - CGRectGetHeight(moreScroll.bounds));
+                moreScroll.contentOffset = CGPointMake(0.0, end);
+                XCTAssertGreaterThan(end, 60.0);
+                XCTAssertLessThanOrEqual(CGRectGetMaxY(last.frame) - moreScroll.contentOffset.y,
+                                         CGRectGetHeight(moreScroll.bounds) + 0.5);
+                XCTAttachment *shot = [XCTAttachment attachmentWithImage:[self snapshotOfWindow:window]];
+                shot.name = @"Accessibility XXXL compact candidate selection";
+                shot.lifetime = XCTAttachmentLifetimeKeepAlways;
+                [self addAttachment:shot];
+            }
+            bar.expanded = NO;
+            [host.view layoutIfNeeded];
+            [controller.view layoutIfNeeded];
+            XCTAssertFalse(keyboard.hidden);
+            XCTAssertTrue([inlineFirst.accessibilityHint containsString:@"數字 0"]);
+            XCTAssertTrue([inlineFirst.accessibilityHint containsString:@"空白鍵"]);
+            NSUInteger visibleAlternateHints = 0;
+            for (NSArray<FSHKeyButton *> *row in [keyboard valueForKey:@"rowButtons"]) {
+                for (FSHKeyButton *button in row) {
+                    [button layoutIfNeeded];
+                    XCTAssertGreaterThanOrEqual(CGRectGetMinX(button.titleLabel.frame), -0.5);
+                    XCTAssertGreaterThanOrEqual(CGRectGetMinY(button.titleLabel.frame), -0.5);
+                    XCTAssertLessThanOrEqual(CGRectGetMaxX(button.titleLabel.frame), CGRectGetWidth(button.bounds) + 0.5);
+                    XCTAssertLessThanOrEqual(CGRectGetMaxY(button.titleLabel.frame), CGRectGetHeight(button.bounds) + 0.5);
+                    UILabel *hint = [button valueForKey:@"alternateHintLabel"];
+                    if (!hint || hint.hidden) { continue; }
+                    visibleAlternateHints++;
+                    XCTAssertLessThanOrEqual(CGRectGetMaxY(hint.frame), CGRectGetMinY(button.titleLabel.frame) + 0.5);
+                    XCTAssertLessThanOrEqual(CGRectGetMaxY(hint.frame), CGRectGetHeight(button.bounds) + 0.5);
+                }
+            }
+            if (rootHeight.doubleValue >= 253.0) {
+                XCTAssertGreaterThanOrEqual(visibleAlternateHints, (NSUInteger)2,
+                                            @"Mode and Hide hints should reappear when rows fit");
+            }
+            if (rootWidth.doubleValue == 393.0 && rootHeight.doubleValue == 253.0) {
+                XCTAttachment *shot = [XCTAttachment attachmentWithImage:[self snapshotOfWindow:window]];
+                shot.name = @"Accessibility XXXL keyboard labels";
+                shot.lifetime = XCTAttachmentLifetimeKeepAlways;
+                [self addAttachment:shot];
+            }
+            bar.expanded = YES;
+            if (rootWidth.doubleValue == 320.0 && rootHeight.doubleValue == 160.0) {
+                bar.expanded = NO;
+                [controller keyboardView:keyboard didBeginPressKeyCode:FSHKeyCodeDelete output:nil];
+                XCTAssertTrue([[controller valueForKey:@"deletePressActive"] boolValue]);
+                [moreControl sendActionsForControlEvents:UIControlEventTouchUpInside];
+                [host.view layoutIfNeeded];
+                XCTAssertFalse([[controller valueForKey:@"deletePressActive"] boolValue]);
+                XCTAssertNil([controller valueForKey:@"deleteRepeatTimer"]);
+                UIButton *commit = [[bar valueForKey:@"moreButtonPool"] firstObject];
+                [commit sendActionsForControlEvents:UIControlEventTouchUpInside];
+                [host.view layoutIfNeeded];
+                XCTAssertEqualObjects(controller.fakeProxy.text, @"候0");
+                XCTAssertFalse(bar.isExpanded);
+                XCTAssertFalse(keyboard.hidden);
+                XCTAssertFalse(keyboard.accessibilityElementsHidden);
+                [raw setString:@"ab"];
+                [controller refreshCandidatesAndUI];
+                [moreControl sendActionsForControlEvents:UIControlEventTouchUpInside];
+            }
+        }
+    }
+    XCTAssertEqual([self keyWithOutput:@"q" inKeyboard:keyboard], key);
+    XCTAssertEqualObjects(raw, @"ab");
+    XCTAssertTrue(bar.isExpanded);
+    bar.expanded = NO;
+    [host.view layoutIfNeeded];
+    [controller.view layoutIfNeeded];
+    XCTAssertGreaterThan(key.titleLabel.font.pointSize, defaultFont);
+    width.constant = 320.0;
+    height.constant = 160.0;
+    [moreControl sendActionsForControlEvents:UIControlEventTouchUpInside];
+    [host.view layoutIfNeeded];
+    FSHKeyButton *compactGlobe = [bar valueForKey:@"compactGlobeButton"];
+    XCTAssertTrue(compactGlobe.hidden);
+    controller.fakeNeedsInputModeSwitchKey = YES;
+    [controller refreshInputModeSwitchKey];
+    [controller.view setNeedsLayout];
+    [host.view layoutIfNeeded];
+    XCTAssertFalse(compactGlobe.hidden);
+    XCTAssertTrue(keyboard.hidden);
+    NSUInteger beforeEvents = controller.inputModeEventCount;
+    [compactGlobe sendActionsForControlEvents:UIControlEventTouchDown];
+    XCTAssertEqual(controller.inputModeEventCount, beforeEvents + 1);
+    XCTAssertEqual(controller.lastInputModeEventView, compactGlobe);
+    NSUInteger beforeAdvance = controller.inputModeAdvanceCount;
+    XCTAssertTrue([compactGlobe accessibilityActivate]);
+    XCTAssertEqual(controller.inputModeAdvanceCount, beforeAdvance + 1);
+    controller.fakeNeedsInputModeSwitchKey = NO;
+    [controller refreshInputModeSwitchKey];
+    [controller.view setNeedsLayout];
+    [host.view layoutIfNeeded];
+    XCTAssertTrue(compactGlobe.hidden);
+    [window setHidden:YES];
+    [oldKeyWindow makeKeyAndVisible];
 }
 
 - (void)testOriginalLayoutsFillTheirAvailableHeight {
@@ -1767,6 +2593,192 @@ static id FSHFixtureDefaults;
     CGFloat maximum = MAX(0.0, inlineScroll.contentSize.width - inlineScroll.bounds.size.width);
     XCTAssertLessThanOrEqual(inlineScroll.contentOffset.x, maximum + 0.5);
     XCTAssertGreaterThanOrEqual(inlineScroll.contentOffset.x, -0.5);
+}
+
+- (void)testCandidateAccessibilityDescribesCodeExactnessAndRealShortcutsAcrossContexts {
+    FSHCandidateBarView *bar = [[FSHCandidateBarView alloc] initWithFrame:CGRectMake(0, 0, 320, 217.5)];
+    UIView *host = [self hostForCandidateBar:bar width:320 height:217.5];
+    NSArray<FSHCandidate *> *candidates = [self candidatesWithCount:12 code:@"ci"];
+    bar.selectionContext = FSHCandidateSelectionContextLetters;
+    [bar updateRawBuffer:@"ci" candidates:candidates exactCount:10 inlineLimit:10 moreLimit:12 hintText:nil];
+    [host layoutIfNeeded];
+    UIStackView *inlineStack = [bar valueForKey:@"candidateStack"];
+    UIButton *first = (UIButton *)inlineStack.arrangedSubviews[0];
+    UIButton *ninth = (UIButton *)inlineStack.arrangedSubviews[9];
+    UIButton *raw = [bar valueForKey:@"rawButton"];
+    UIButton *more = [bar valueForKey:@"moreButton"];
+    XCTAssertEqualObjects(first.accessibilityLabel, candidates[0].value);
+    XCTAssertEqualObjects(first.accessibilityValue, @"字碼 ci，完全符合");
+    XCTAssertTrue([first.accessibilityHint containsString:@"數字 0"]);
+    XCTAssertTrue([first.accessibilityHint containsString:@"空白鍵"]);
+    XCTAssertTrue([ninth.accessibilityHint containsString:@"數字 9"]);
+    XCTAssertFalse([ninth.accessibilityHint containsString:@"空白鍵"]);
+    XCTAssertEqualObjects(raw.accessibilityLabel, @"ci");
+    XCTAssertTrue([raw.accessibilityHint containsString:@"原始字碼"]);
+    XCTAssertEqualObjects(more.accessibilityLabel, @"更多候選字");
+    XCTAssertEqualObjects(more.accessibilityValue, @"已收合");
+
+    [bar setExpanded:YES];
+    [host layoutIfNeeded];
+    XCTAssertEqualObjects(more.accessibilityValue, @"已展開");
+    NSArray<UIButton *> *morePool = [bar valueForKey:@"moreButtonPool"];
+    UIButton *prefix = morePool[10];
+    XCTAssertEqualObjects(prefix.accessibilityValue, @"字碼 ci，前綴候選");
+    XCTAssertFalse([prefix.accessibilityHint containsString:@"數字"]);
+    XCTAssertFalse([prefix.accessibilityHint containsString:@"空白鍵"]);
+
+    bar.selectionContext = FSHCandidateSelectionContextSymbols;
+    [bar updateRawBuffer:@"ci" candidates:candidates exactCount:10 inlineLimit:10 moreLimit:12 hintText:nil];
+    XCTAssertEqual((UIButton *)inlineStack.arrangedSubviews[0], first);
+    XCTAssertEqual(morePool[10], prefix);
+    XCTAssertFalse([first.accessibilityHint containsString:@"數字"]);
+    XCTAssertTrue([first.accessibilityHint containsString:@"空白鍵"]);
+    bar.selectionContext = FSHCandidateSelectionContextReverseEntering;
+    [bar updateRawBuffer:@"ci" candidates:candidates exactCount:10 inlineLimit:10 moreLimit:12 hintText:nil];
+    XCTAssertTrue([first.accessibilityHint containsString:@"輸入候選字"],
+                  @"A phrase base commits directly instead of opening homophones");
+    XCTAssertTrue([first.accessibilityHint containsString:@"數字 0"]);
+    XCTAssertFalse([prefix.accessibilityHint containsString:@"數字"]);
+    NSMutableArray<FSHCandidate *> *singleBaseCandidates = [candidates mutableCopy];
+    singleBaseCandidates[0] = [[FSHCandidate alloc] initWithCode:@"ci" value:@"中"];
+    [bar updateRawBuffer:@"ci" candidates:singleBaseCandidates exactCount:10 inlineLimit:10 moreLimit:12 hintText:nil];
+    XCTAssertTrue([first.accessibilityHint containsString:@"查看同音字"]);
+    bar.selectionContext = FSHCandidateSelectionContextReverseActive;
+    [bar updateRawBuffer:@"ci" candidates:candidates exactCount:12 inlineLimit:10 moreLimit:12 hintText:nil];
+    XCTAssertEqualObjects(first.accessibilityValue, @"讀音碼 ci，同音字候選");
+    XCTAssertTrue([first.accessibilityHint containsString:@"數字 0"]);
+    XCTAssertFalse([prefix.accessibilityHint containsString:@"數字"], @"Indexes above 9 have no digit shortcut");
+    [bar setExpanded:NO];
+    XCTAssertEqualObjects(more.accessibilityValue, @"已收合");
+}
+
+- (void)testCandidateShortcutAnnouncementsMatchControllerDigitAndSpaceActions {
+    FSHShiamyEngine *engine = [[FSHShiamyEngine alloc] init];
+    NSError *error = nil;
+    XCTAssertTrue([engine loadFromBundle:[NSBundle mainBundle] error:&error], @"%@", error);
+    [self.controller setValue:engine forKey:@"engine"];
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+    FSHCandidateBarView *bar = [self.controller valueForKey:@"candidateBar"];
+    UIStackView *stack = [bar valueForKey:@"candidateStack"];
+
+    [[self rawBuffer] setString:@"ci"];
+    [self.controller refreshCandidatesAndUI];
+    UIButton *first = (UIButton *)stack.arrangedSubviews.firstObject;
+    XCTAssertTrue([first.accessibilityHint containsString:@"數字 0"]);
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"0"];
+    XCTAssertEqualObjects(self.proxy.text, @"中");
+    XCTAssertEqualObjects([self rawBuffer], @"");
+
+    [[self rawBuffer] setString:@"ci"];
+    [self.controller refreshCandidatesAndUI];
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeModeChange output:nil];
+    XCTAssertEqual(self.keyboard.mode, FSHKeyboardModeSymbols);
+    first = (UIButton *)stack.arrangedSubviews.firstObject;
+    XCTAssertFalse([first.accessibilityHint containsString:@"數字"]);
+    XCTAssertTrue([first.accessibilityHint containsString:@"空白鍵"]);
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"1"];
+    XCTAssertEqualObjects([self rawBuffer], @"ci1");
+    XCTAssertEqualObjects(self.proxy.text, @"中");
+
+    self.keyboard.mode = FSHKeyboardModeLetters;
+    [[self rawBuffer] setString:@""];
+    for (NSString *input in @[@"'", @"c", @"i"]) {
+        [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:input];
+    }
+    XCTAssertEqualObjects([self rawBuffer], @"'ci");
+    XCTAssertEqual([[self.controller valueForKey:@"reverseState"] integerValue], (NSInteger)1);
+    first = (UIButton *)stack.arrangedSubviews.firstObject;
+    XCTAssertTrue([first.accessibilityHint containsString:@"查看同音字"]);
+    XCTAssertTrue([first.accessibilityHint containsString:@"數字 0"]);
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"0"];
+    XCTAssertEqual([[self.controller valueForKey:@"reverseState"] integerValue], (NSInteger)2);
+    XCTAssertEqualObjects(self.proxy.text, @"中");
+    first = (UIButton *)stack.arrangedSubviews.firstObject;
+    NSArray<FSHCandidate *> *reverseCandidates = [self.controller valueForKey:@"candidates"];
+    XCTAssertEqualObjects(first.accessibilityValue,
+                          [NSString stringWithFormat:@"讀音碼 %@，同音字候選", reverseCandidates.firstObject.code]);
+    XCTAssertTrue([first.accessibilityHint containsString:@"空白鍵"]);
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeSpace output:@" "];
+    XCTAssertEqualObjects([self rawBuffer], @"");
+    XCTAssertGreaterThan(self.proxy.text.length, (NSUInteger)1);
+}
+
+- (void)testCandidateShortcutAvailabilityRefreshesPooledMetadataWithoutChangingQueryOrScroll {
+    FSHCandidateBarView *bar = [[FSHCandidateBarView alloc] initWithFrame:CGRectMake(0, 0, 320, 217.5)];
+    UIView *host = [self hostForCandidateBar:bar width:320 height:217.5];
+    NSArray<FSHCandidate *> *candidates = [self candidatesWithCount:50 code:@"ci"];
+    bar.selectionContext = FSHCandidateSelectionContextLetters;
+    [bar updateRawBuffer:@"ci" candidates:candidates exactCount:10 inlineLimit:10 moreLimit:50 hintText:nil];
+    bar.expanded = YES;
+    [host layoutIfNeeded];
+    UIStackView *stack = [bar valueForKey:@"candidateStack"];
+    UIButton *first = (UIButton *)stack.arrangedSubviews.firstObject;
+    NSArray<UIButton *> *expandedPool = [bar valueForKey:@"moreButtonPool"];
+    UIButton *expandedFirst = expandedPool.firstObject;
+    UIScrollView *inlineScroll = [bar valueForKey:@"scrollView"];
+    UIScrollView *expandedScroll = [bar valueForKey:@"moreScrollView"];
+    inlineScroll.contentOffset = CGPointMake(12.0, 0.0);
+    expandedScroll.contentOffset = CGPointMake(0.0, 18.0);
+    NSArray *signature = [bar valueForKey:@"currentQuerySignature"];
+    XCTAssertTrue([first.accessibilityHint containsString:@"數字 0"]);
+    XCTAssertTrue([first.accessibilityHint containsString:@"空白鍵"]);
+
+    [bar updateShortcutAvailabilityWithDigits:NO space:YES];
+    XCTAssertFalse([first.accessibilityHint containsString:@"數字"]);
+    XCTAssertTrue([first.accessibilityHint containsString:@"空白鍵"]);
+    XCTAssertFalse([expandedFirst.accessibilityHint containsString:@"數字"]);
+    [bar updateShortcutAvailabilityWithDigits:NO space:NO];
+    XCTAssertFalse([first.accessibilityHint containsString:@"空白鍵"]);
+    XCTAssertFalse([expandedFirst.accessibilityHint containsString:@"空白鍵"]);
+    [bar updateShortcutAvailabilityWithDigits:YES space:YES];
+    XCTAssertTrue([first.accessibilityHint containsString:@"數字 0"]);
+    XCTAssertTrue([expandedFirst.accessibilityHint containsString:@"空白鍵"]);
+    XCTAssertEqual((UIButton *)stack.arrangedSubviews.firstObject, first);
+    XCTAssertEqual(((NSArray *)[bar valueForKey:@"moreButtonPool"]).firstObject, expandedFirst);
+    XCTAssertEqual([bar valueForKey:@"currentQuerySignature"], signature);
+    XCTAssertEqualObjects(first.accessibilityIdentifier, @"candidate.inline.0");
+    XCTAssertEqualObjects(expandedFirst.accessibilityIdentifier, @"candidate.expanded.0");
+    XCTAssertEqualWithAccuracy(inlineScroll.contentOffset.x, 12.0, 0.5);
+    XCTAssertEqualWithAccuracy(expandedScroll.contentOffset.y, 18.0, 0.5);
+}
+
+- (void)testCandidateDigitHintsRespectLetterNumberRowAvailability {
+    FSHShiamyEngine *engine = [[FSHShiamyEngine alloc] init];
+    NSError *error = nil;
+    XCTAssertTrue([engine loadFromBundle:NSBundle.mainBundle error:&error], @"%@", error);
+    [self.controller setValue:engine forKey:@"engine"];
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+    FSHCandidateBarView *bar = [self.controller valueForKey:@"candidateBar"];
+    UIStackView *stack = [bar valueForKey:@"candidateStack"];
+    [[self rawBuffer] setString:@"ci"];
+    self.keyboard.mode = FSHKeyboardModeLetters;
+    self.keyboard.layout = FSHKeyboardLayoutStandard;
+    self.keyboard.showNumberRow = YES;
+    [self.controller refreshCandidatesAndUI];
+    UIButton *first = (UIButton *)stack.arrangedSubviews.firstObject;
+    XCTAssertTrue([first.accessibilityHint containsString:@"數字 0"]);
+    self.keyboard.showNumberRow = NO;
+    [self.controller refreshCandidatesAndUI];
+    XCTAssertEqual((UIButton *)stack.arrangedSubviews.firstObject, first);
+    XCTAssertFalse([first.accessibilityHint containsString:@"數字"]);
+    XCTAssertTrue([first.accessibilityHint containsString:@"空白鍵"]);
+    self.keyboard.showNumberRow = YES;
+    self.keyboard.layout = FSHKeyboardLayoutOriginalNoNumber;
+    [self.controller refreshCandidatesAndUI];
+    XCTAssertFalse([first.accessibilityHint containsString:@"數字"]);
+    self.keyboard.layout = FSHKeyboardLayoutStandard;
+    [self.controller refreshCandidatesAndUI];
+    XCTAssertTrue([first.accessibilityHint containsString:@"數字 0"]);
+    [self.controller setValue:@2 forKey:@"reverseState"];
+    self.keyboard.mode = FSHKeyboardModeSymbols;
+    [self.controller refreshCandidatesAndUI];
+    XCTAssertTrue([first.accessibilityHint containsString:@"數字 0"],
+                  @"Reverse-active Symbols still has reachable digit keys");
+    self.keyboard.mode = FSHKeyboardModeEmoji;
+    [self.controller refreshCandidatesAndUI];
+    XCTAssertFalse([first.accessibilityHint containsString:@"數字"],
+                   @"Emoji has no digit keys even while reverse selection is active");
+    XCTAssertTrue([first.accessibilityHint containsString:@"空白鍵"]);
 }
 
 - (void)testProductionKeyboardViewsRenderInAttachedHostWindow {
@@ -2767,6 +3779,134 @@ static id FSHFixtureDefaults;
     [queryField sendActionsForControlEvents:UIControlEventEditingChanged];
     XCTAssertEqualObjects(singleLine.text, @"原有單行文字");
     XCTAssertEqualObjects(multiLine.text, @"原有多行文字");
+}
+
+- (void)testHostPanelScrollsFocusedFieldsAboveSceneBackedKeyboard {
+    ViewController *panel = [[ViewController alloc] init];
+    UINavigationController *navigation = [[UINavigationController alloc] initWithRootViewController:panel];
+    UIWindowScene *activeScene = nil;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if ([scene isKindOfClass:UIWindowScene.class] && scene.activationState == UISceneActivationStateForegroundActive) {
+            activeScene = (UIWindowScene *)scene;
+            break;
+        }
+    }
+    XCTAssertNotNil(activeScene);
+    if (!activeScene) return;
+    UIWindow *oldKeyWindow = nil;
+    for (UIWindow *sceneWindow in activeScene.windows) {
+        if (sceneWindow.isKeyWindow) oldKeyWindow = sceneWindow;
+    }
+    UIWindow *window = [[UIWindow alloc] initWithWindowScene:activeScene];
+    window.frame = activeScene.coordinateSpace.bounds;
+    window.rootViewController = navigation;
+    [window makeKeyAndVisible];
+    [panel loadViewIfNeeded];
+    XCTAssertTrue([self waitForView:panel.view toAttachToWindow:window]);
+    XCTAssertEqual(panel.view.window, window);
+    UITextField *single = [panel valueForKey:@"singleLineField"];
+    UITextView *multi = [panel valueForKey:@"multiLineView"];
+    UIScrollView *scroll = [panel valueForKey:@"scrollView"];
+    single.text = @"保留單行";
+    multi.text = @"保留多行";
+    XCTAssertTrue([single becomeFirstResponder]);
+    NSPredicate *visibleKeyboard = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        CGRect keyboardFrame = panel.view.keyboardLayoutGuide.layoutFrame;
+        return keyboardFrame.size.height > panel.view.safeAreaInsets.bottom + 100.0 &&
+               CGRectGetMinY(keyboardFrame) < CGRectGetHeight(panel.view.bounds) - 100.0;
+    }];
+    XCTNSPredicateExpectation *keyboardVisible = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:visibleKeyboard object:panel];
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[keyboardVisible] timeout:10.0], XCTWaiterResultCompleted);
+    [window layoutIfNeeded];
+    CGRect singleRect = [single convertRect:single.bounds toView:scroll];
+    XCTAssertGreaterThanOrEqual(CGRectGetMinY(singleRect), scroll.contentOffset.y - 1.0);
+    XCTAssertLessThanOrEqual(CGRectGetMaxY(singleRect), scroll.contentOffset.y + scroll.bounds.size.height + 1.0);
+    XCTAssertLessThanOrEqual(CGRectGetMaxY(scroll.frame),
+                             CGRectGetMinY(panel.view.keyboardLayoutGuide.layoutFrame) + 1.0);
+    XCTAttachment *singleSnapshot = [XCTAttachment attachmentWithImage:[self snapshotOfWindow:window]];
+    singleSnapshot.name = @"Host panel focused single-line field above keyboard";
+    singleSnapshot.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:singleSnapshot];
+
+    XCTAssertFalse([panel textFieldShouldReturn:single]);
+    XCTAssertTrue(multi.isFirstResponder);
+    [window layoutIfNeeded];
+    NSPredicate *caretAvailable = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return multi.selectedTextRange.end != nil;
+    }];
+    XCTNSPredicateExpectation *caretReady = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:caretAvailable object:multi];
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[caretReady] timeout:5.0], XCTWaiterResultCompleted);
+    UITextPosition *caret = multi.selectedTextRange.end;
+    XCTAssertNotNil(caret);
+    CGRect caretRect = caret ? [multi convertRect:[multi caretRectForPosition:caret] toView:scroll] : CGRectZero;
+    XCTAssertGreaterThanOrEqual(CGRectGetMinY(caretRect), scroll.contentOffset.y - 1.0);
+    XCTAssertLessThanOrEqual(CGRectGetMaxY(caretRect), scroll.contentOffset.y + scroll.bounds.size.height + 1.0);
+    XCTAssertEqualObjects(single.text, @"保留單行");
+    XCTAssertEqualObjects(multi.text, @"保留多行");
+    XCTAttachment *multilineSnapshot = [XCTAttachment attachmentWithImage:[self snapshotOfWindow:window]];
+    multilineSnapshot.name = @"Host panel focused multiline caret above keyboard";
+    multilineSnapshot.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:multilineSnapshot];
+
+    UIStackView *stack = nil;
+    for (UIView *child in scroll.subviews) {
+        if ([child isKindOfClass:UIStackView.class]) {
+            stack = (UIStackView *)child;
+            break;
+        }
+    }
+    XCTAssertNotNil(stack);
+    UIButton *settingsButton = nil;
+    UIButton *clearButton = nil;
+    for (UIView *child in stack.arrangedSubviews) {
+        if ([child.accessibilityIdentifier isEqualToString:@"smoke.appSettings"]) settingsButton = (UIButton *)child;
+        if ([child.accessibilityIdentifier isEqualToString:@"smoke.clearFields"]) clearButton = (UIButton *)child;
+    }
+    XCTAssertNotNil(settingsButton);
+    XCTAssertNotNil(clearButton);
+    if (settingsButton && clearButton) {
+        for (UIButton *action in @[settingsButton, clearButton]) {
+            CGRect actionRect = [action convertRect:action.bounds toView:scroll];
+            [scroll scrollRectToVisible:actionRect animated:NO];
+            CGFloat chosenOffset = scroll.contentOffset.y;
+            [window layoutIfNeeded];
+            XCTAssertEqualWithAccuracy(scroll.contentOffset.y, chosenOffset, 0.5,
+                                       @"Focused input should not fight manual scrolling to an action");
+            XCTAssertGreaterThanOrEqual(CGRectGetMinY(actionRect), scroll.contentOffset.y - 1.0);
+            XCTAssertLessThanOrEqual(CGRectGetMaxY(actionRect), scroll.contentOffset.y + scroll.bounds.size.height + 1.0);
+            XCTAttachment *actionSnapshot = [XCTAttachment attachmentWithImage:[self snapshotOfWindow:window]];
+            actionSnapshot.name = [NSString stringWithFormat:@"Host panel focused input with %@ reachable",
+                                   action.accessibilityIdentifier];
+            actionSnapshot.lifetime = XCTAttachmentLifetimeKeepAlways;
+            [self addAttachment:actionSnapshot];
+        }
+    }
+    XCTAssertEqualObjects(single.text, @"保留單行");
+    XCTAssertEqualObjects(multi.text, @"保留多行");
+
+    [single becomeFirstResponder];
+    [window layoutIfNeeded];
+    singleRect = [single convertRect:single.bounds toView:scroll];
+    XCTAssertLessThanOrEqual(CGRectGetMaxY(singleRect), scroll.contentOffset.y + scroll.bounds.size.height + 1.0);
+
+    [multi becomeFirstResponder];
+    window.frame = CGRectMake(0, 0, 320, 390);
+    [window layoutIfNeeded];
+    caret = multi.selectedTextRange.end;
+    XCTAssertNotNil(caret);
+    caretRect = caret ? [multi convertRect:[multi caretRectForPosition:caret] toView:scroll] : CGRectZero;
+    XCTAssertGreaterThanOrEqual(CGRectGetMinY(caretRect), scroll.contentOffset.y - 1.0);
+    XCTAssertLessThanOrEqual(CGRectGetMaxY(caretRect), scroll.contentOffset.y + scroll.bounds.size.height + 1.0);
+    XCTAssertLessThanOrEqual(CGRectGetMaxY(scroll.frame),
+                             CGRectGetMinY(panel.view.keyboardLayoutGuide.layoutFrame) + 1.0);
+    XCTAssertEqualObjects(single.text, @"保留單行");
+    XCTAssertEqualObjects(multi.text, @"保留多行");
+
+    [window endEditing:YES];
+    window.hidden = YES;
+    [oldKeyWindow makeKeyAndVisible];
 }
 
 - (void)testEngineRequiresBothReadableNonemptyDictionaries {

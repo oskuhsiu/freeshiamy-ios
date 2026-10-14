@@ -1,5 +1,6 @@
 #import "FSHKeyboardView.h"
 #import "FSHKeyButton.h"
+#import "FSHKeyboardMetrics.h"
 
 @interface FSHKeyDescriptor : NSObject
 @property (nonatomic, copy) NSString *label;
@@ -440,6 +441,19 @@
         [self configureAlternateActionForButton:button hint:@"⚙︎" prompt:@"顯示設定位置"
                                         keyCode:FSHKeyCodeSettings output:nil];
     }
+    if (self.mode == FSHKeyboardModeLetters && descriptor.keyCode == 0 &&
+        ([descriptor.output isEqualToString:@","] || [descriptor.output isEqualToString:@"."])) {
+        NSString *bracket = [descriptor.output isEqualToString:@","] ? @"[" : @"]";
+        UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc]
+            initWithTarget:self action:@selector(handleBracketLongPress:)];
+        longPress.minimumPressDuration = 0.4;
+        longPress.cancelsTouchesInView = YES;
+        [button addGestureRecognizer:longPress];
+        button.accessibilityIdentifier = [bracket isEqualToString:@"["] ? @"key.root.open" : @"key.root.close";
+        [self configureAlternateActionForButton:button hint:bracket
+                                         prompt:[NSString stringWithFormat:@"輸入字根 %@", bracket]
+                                        keyCode:0 output:bracket];
+    }
     if (descriptor.keyCode == FSHKeyCodeShift) {
         self.shiftButton = button;
     }
@@ -451,7 +465,7 @@
         button.accessibilityIdentifier = @"key.return";
     }
 
-    if (self.labelTop && !descriptor.isSpecial && descriptor.label.length > 0) {
+    if (self.labelTop && !descriptor.isSpecial && descriptor.label.length > 0 && button.alternateHint.length == 0) {
         button.contentVerticalAlignment = UIControlContentVerticalAlignmentTop;
         button.contentEdgeInsets = UIEdgeInsetsMake(6, 0, 0, 0);
     }
@@ -483,12 +497,13 @@
     if (self.rowButtons.count == 0) {
         return;
     }
-    CGFloat totalHeight = self.bounds.size.height;
-    CGFloat totalWidth = self.bounds.size.width;
+    CGFloat totalHeight = FSHNonnegativeFinite(self.bounds.size.height);
+    CGFloat totalWidth = FSHNonnegativeFinite(self.bounds.size.width);
     NSUInteger rowsCount = self.rowButtons.count;
     BOOL originalLayout = (self.layout == FSHKeyboardLayoutOriginal || self.layout == FSHKeyboardLayoutOriginalNoNumber);
     CGFloat rowGap = originalLayout ? 1.0 : 6.0;
-    CGFloat rowHeight = (totalHeight - rowGap * (rowsCount - 1)) / rowsCount;
+    rowGap = MIN(rowGap, totalHeight / MAX(1.0, (CGFloat)(rowsCount - 1)));
+    CGFloat rowHeight = MAX(0.0, (totalHeight - rowGap * (rowsCount - 1)) / rowsCount);
 
     CGFloat hGap = 4.0;
     CGFloat sideInset = 4.0;
@@ -499,9 +514,12 @@
         hGap = 1.0;
         sideInset = 0.0;
     }
+    sideInset = MIN(sideInset, totalWidth * 0.5);
 
     for (NSUInteger rowIndex = 0; rowIndex < rowsCount; rowIndex++) {
         NSArray<FSHKeyButton *> *row = self.rowButtons[rowIndex];
+        CGFloat rowHGap = MIN(hGap, MAX(0.0, totalWidth - 2.0 * sideInset) /
+                                  MAX(1.0, (CGFloat)(row.count - 1)));
         CGFloat rowInsetUnitsLeft = 0.0;
         CGFloat rowInsetUnitsRight = 0.0;
         BOOL growDeleteHalf = NO;
@@ -541,15 +559,15 @@
             }
             totalWeight += weight;
         }
-        CGFloat availableWidth = totalWidth - sideInset * 2 - hGap * (row.count - 1);
+        CGFloat availableWidth = MAX(0.0, totalWidth - sideInset * 2 - rowHGap * (row.count - 1));
         CGFloat unitWidth = totalWeight > 0 ? (availableWidth / (totalWeight + rowInsetUnitsLeft + rowInsetUnitsRight)) : 0.0;
         CGFloat rowInsetLeft = unitWidth * rowInsetUnitsLeft;
         CGFloat rowInsetRight = unitWidth * rowInsetUnitsRight;
         if (isOriginalARow) {
-            rowInsetLeft = totalWidth * 0.05;
-            rowInsetRight = totalWidth * 0.05;
+            rowInsetLeft = MIN(totalWidth * 0.05, availableWidth * 0.5);
+            rowInsetRight = MIN(totalWidth * 0.05, availableWidth * 0.5);
         }
-        CGFloat adjustedAvailableWidth = availableWidth - rowInsetLeft - rowInsetRight;
+        CGFloat adjustedAvailableWidth = MAX(0.0, availableWidth - rowInsetLeft - rowInsetRight);
         CGFloat adjustedUnitWidth = totalWeight > 0 ? (adjustedAvailableWidth / totalWeight) : 0.0;
         CGFloat x = sideInset + rowInsetLeft;
         CGFloat y = (rowHeight + rowGap) * rowIndex;
@@ -562,16 +580,58 @@
             }
             CGFloat width = (totalWeight > 0) ? adjustedUnitWidth * weight : 0;
             button.frame = CGRectMake(x, y, width, rowHeight);
-            CGFloat left = (keyIndex == 0) ? MAX(0.0, x) : hGap * 0.5;
+            CGFloat left = (keyIndex == 0) ? MAX(0.0, x) : rowHGap * 0.5;
             CGFloat right = (keyIndex + 1 == row.count)
-                ? MAX(0.0, totalWidth - CGRectGetMaxX(button.frame)) : hGap * 0.5;
+                ? MAX(0.0, totalWidth - CGRectGetMaxX(button.frame)) : rowHGap * 0.5;
             CGFloat top = (rowIndex == 0) ? MAX(0.0, y) : rowGap * 0.5;
             CGFloat bottom = (rowIndex + 1 == rowsCount)
                 ? MAX(0.0, totalHeight - CGRectGetMaxY(button.frame)) : rowGap * 0.5;
             button.hitAreaOutsets = UIEdgeInsetsMake(top, left, bottom, right);
-            x += width + hGap;
+            [self applyTypographyToButton:button];
+            x += width + rowHGap;
         }
     }
+}
+
+- (CGFloat)minimumUsableHeight {
+    NSUInteger rows = self.rowButtons.count;
+    if (rows == 0) { return 0.0; }
+    CGFloat gap = (self.layout == FSHKeyboardLayoutOriginal || self.layout == FSHKeyboardLayoutOriginalNoNumber) ? 1.0 : 6.0;
+    return 24.0 * rows + gap * (rows - 1);
+}
+
+- (void)applyTypographyToButton:(FSHKeyButton *)button {
+    BOOL isReturn = button.keyCode == FSHKeyCodeEnter;
+    BOOL hasAlternate = button.alternateHint.length > 0;
+    CGFloat baseSize = isReturn ? 13.0 : (hasAlternate ? 15.0 : 18.0);
+    CGFloat rowHeight = FSHNonnegativeFinite(CGRectGetHeight(button.bounds));
+    CGFloat hintLine = MIN(14.0, MAX(10.0, rowHeight * 0.27));
+    CGFloat cap = hasAlternate
+        ? MAX(8.0, MIN(24.0, (rowHeight - hintLine - 3.0) / 1.2))
+        : MAX(8.0, MIN(30.0, rowHeight * 0.62));
+    UIFont *base = [UIFont systemFontOfSize:baseSize weight:isReturn ? UIFontWeightSemibold : UIFontWeightRegular];
+    UIFont *scaled = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleBody]
+        scaledFontForFont:base maximumPointSize:cap compatibleWithTraitCollection:self.traitCollection];
+    button.titleLabel.font = scaled;
+    button.titleLabel.adjustsFontSizeToFitWidth = YES;
+    button.titleLabel.minimumScaleFactor = 0.75;
+    if (hasAlternate) {
+        button.contentVerticalAlignment = UIControlContentVerticalAlignmentBottom;
+        button.contentEdgeInsets = UIEdgeInsetsMake(0.0, 1.0, MIN(2.0, rowHeight * 0.05), 1.0);
+    } else if (self.labelTop && !button.isSpecial) {
+        button.contentVerticalAlignment = UIControlContentVerticalAlignmentTop;
+        button.contentEdgeInsets = UIEdgeInsetsMake(MIN(6.0, rowHeight * 0.1), 0.0, 0.0, 0.0);
+    }
+    [button updateAlternateHintTypography];
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if (!previousTraitCollection ||
+        [previousTraitCollection.preferredContentSizeCategory isEqualToString:self.traitCollection.preferredContentSizeCategory]) {
+        return;
+    }
+    [self setNeedsLayout];
 }
 
 - (void)handleKeyPress:(FSHKeyButton *)sender {
@@ -620,6 +680,19 @@
         if ([self.delegate respondsToSelector:@selector(keyboardView:didPressKeyCode:output:)]) {
             [self.delegate keyboardView:self didPressKeyCode:FSHKeyCodeSettings output:nil];
         }
+    }
+}
+
+- (void)handleBracketLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateBegan ||
+        ![gesture.view isKindOfClass:FSHKeyButton.class]) {
+        return;
+    }
+    FSHKeyButton *button = (FSHKeyButton *)gesture.view;
+    NSString *bracket = [button.output isEqualToString:@","] ? @"[" :
+        ([button.output isEqualToString:@"."] ? @"]" : nil);
+    if (bracket && [self.delegate respondsToSelector:@selector(keyboardView:didPressKeyCode:output:)]) {
+        [self.delegate keyboardView:self didPressKeyCode:0 output:bracket];
     }
 }
 
@@ -732,9 +805,7 @@
         }
     }];
     self.enterButton.accessibilityLabel = label ?: title;
-    self.enterButton.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightSemibold];
-    self.enterButton.titleLabel.adjustsFontSizeToFitWidth = YES;
-    self.enterButton.titleLabel.minimumScaleFactor = 0.8;
+    [self applyTypographyToButton:self.enterButton];
 }
 
 - (UIColor *)keyboardBackgroundColor {

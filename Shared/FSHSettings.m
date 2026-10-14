@@ -1,7 +1,8 @@
 #import "FSHSettings.h"
 #import <math.h>
 
-static NSString *const kFSHAppGroup = @"group.osku.me.freeshiamy";
+static NSString *const kFSHAppGroup = @"group.osku.me.freeshiamy_ios";
+static NSString *const kFSHLegacyAppGroup = @"group.osku.me.freeshiamy";
 
 static NSString *const kFSHKeyKeyboardHeightPercent = @"keyboard_height_percent";
 static NSString *const kFSHKeyKeyboardLayout = @"keyboard_layout";
@@ -33,6 +34,14 @@ static NSInteger FSHBoundedInteger(id value, NSInteger fallback, NSInteger minim
     return [value integerValue];
 }
 
+static BOOL FSHStoredBoolean(id value, BOOL fallback) {
+    if (![value isKindOfClass:NSNumber.class]) {
+        return fallback;
+    }
+    double number = [value doubleValue];
+    return (number == 0.0 || number == 1.0) ? [value boolValue] : fallback;
+}
+
 static NSString *FSHValidLayout(id value) {
     if (![value isKindOfClass:[NSString class]]) {
         return @"standard";
@@ -46,11 +55,86 @@ static NSString *FSHValidLayout(id value) {
     return [layouts containsObject:value] ? value : @"standard";
 }
 
+static BOOL FSHValidMigratedValue(NSString *key, id value) {
+    if ([key isEqualToString:kFSHKeyKeyboardLayout]) {
+        return [value isKindOfClass:NSString.class] &&
+            [FSHValidLayout(value) isEqualToString:value];
+    }
+    if (![value isKindOfClass:NSNumber.class]) {
+        return NO;
+    }
+    double number = [value doubleValue];
+    if (!isfinite(number) || trunc(number) != number) {
+        return NO;
+    }
+    if ([key isEqualToString:kFSHKeyKeyboardHeightPercent] ||
+        [key isEqualToString:kFSHKeyCandidateInlineLimit] ||
+        [key isEqualToString:kFSHKeyCandidateMoreLimit]) {
+        return YES; // Range sanitation remains in the normal getter.
+    }
+    return number == 0.0 || number == 1.0;
+}
+
 @implementation FSHSettings
+
++ (void)migrateLegacySettings {
+    NSUserDefaults *legacy = [[NSUserDefaults alloc] initWithSuiteName:kFSHLegacyAppGroup];
+    NSUserDefaults *shared = [[NSUserDefaults alloc] initWithSuiteName:kFSHAppGroup];
+    if (!legacy || !shared) {
+        return;
+    }
+    [self migrateLegacySettingsFromDefaults:legacy suiteName:kFSHLegacyAppGroup
+                                toDefaults:shared suiteName:kFSHAppGroup];
+}
+
++ (void)migrateLegacySettingsFromDefaults:(NSUserDefaults *)legacyDefaults
+                               suiteName:(NSString *)legacySuiteName
+                              toDefaults:(NSUserDefaults *)sharedDefaults
+                               suiteName:(NSString *)sharedSuiteName {
+    // objectForKey: also sees registration defaults. Migrate only values the
+    // user actually persisted, and never replace an existing destination key.
+    NSDictionary<NSString *, id> *source = [legacyDefaults persistentDomainForName:legacySuiteName] ?: @{};
+    NSDictionary<NSString *, id> *destination = [sharedDefaults persistentDomainForName:sharedSuiteName] ?: @{};
+    NSArray<NSString *> *keys = @[
+        kFSHKeyKeyboardHeightPercent, kFSHKeyKeyboardLayout, kFSHKeyShowNumberRow,
+        kFSHKeyKeyboardLabelTop, kFSHKeyKeyboardLeftShift, kFSHKeyCandidateInlineLimit,
+        kFSHKeyCandidateMoreLimit, kFSHKeyShowShortestCodeHint,
+        kFSHKeyDisableImeSensitive, kFSHKeySensitiveNoPersonalized,
+    ];
+    for (NSString *key in keys) {
+        id value = source[key];
+        if (value && !destination[key] && FSHValidMigratedValue(key, value)) {
+            [sharedDefaults setObject:value forKey:key];
+        }
+    }
+    if (!destination[kFSHKeyKeyboardLayout]) {
+        NSString *legacyLayout = source[kFSHKeyKeyboardLayout];
+        if ([legacyLayout isKindOfClass:NSString.class]) {
+            if ([legacyLayout isEqualToString:@"standard_label_top"]) {
+                [sharedDefaults setObject:@"standard" forKey:kFSHKeyKeyboardLayout];
+                if (!destination[kFSHKeyKeyboardLabelTop] &&
+                    !FSHValidMigratedValue(kFSHKeyKeyboardLabelTop, source[kFSHKeyKeyboardLabelTop])) {
+                    [sharedDefaults setBool:YES forKey:kFSHKeyKeyboardLabelTop];
+                }
+            } else if ([legacyLayout isEqualToString:@"original_no_number"]) {
+                [sharedDefaults setObject:@"original" forKey:kFSHKeyKeyboardLayout];
+                if (!destination[kFSHKeyShowNumberRow] &&
+                    !FSHValidMigratedValue(kFSHKeyShowNumberRow, source[kFSHKeyShowNumberRow])) {
+                    [sharedDefaults setBool:NO forKey:kFSHKeyShowNumberRow];
+                }
+            }
+        }
+    }
+}
 
 + (NSUserDefaults *)sharedDefaults {
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:kFSHAppGroup];
     return defaults ?: [NSUserDefaults standardUserDefaults];
+}
+
++ (BOOL)hasPersistedSettingForKey:(NSString *)key {
+    NSDictionary *persisted = [[self sharedDefaults] persistentDomainForName:kFSHAppGroup];
+    return persisted[key] != nil;
 }
 
 + (void)registerDefaults {
@@ -86,7 +170,15 @@ static NSString *FSHValidLayout(id value) {
 }
 
 + (BOOL)showNumberRow {
-    return [[self sharedDefaults] boolForKey:kFSHKeyShowNumberRow];
+    return FSHStoredBoolean([[self sharedDefaults] objectForKey:kFSHKeyShowNumberRow], YES);
+}
+
++ (BOOL)effectiveShowNumberRow {
+    if ([[self keyboardLayout] isEqualToString:@"original_no_number"] &&
+        ![self hasPersistedSettingForKey:kFSHKeyShowNumberRow]) {
+        return NO;
+    }
+    return [self showNumberRow];
 }
 
 + (void)setShowNumberRow:(BOOL)value {
@@ -94,7 +186,15 @@ static NSString *FSHValidLayout(id value) {
 }
 
 + (BOOL)keyboardLabelTop {
-    return [[self sharedDefaults] boolForKey:kFSHKeyKeyboardLabelTop];
+    return FSHStoredBoolean([[self sharedDefaults] objectForKey:kFSHKeyKeyboardLabelTop], NO);
+}
+
++ (BOOL)effectiveKeyboardLabelTop {
+    if ([[self keyboardLayout] isEqualToString:@"standard_label_top"] &&
+        ![self hasPersistedSettingForKey:kFSHKeyKeyboardLabelTop]) {
+        return YES;
+    }
+    return [self keyboardLabelTop];
 }
 
 + (void)setKeyboardLabelTop:(BOOL)value {
@@ -102,7 +202,7 @@ static NSString *FSHValidLayout(id value) {
 }
 
 + (BOOL)keyboardLeftShift {
-    return [[self sharedDefaults] boolForKey:kFSHKeyKeyboardLeftShift];
+    return FSHStoredBoolean([[self sharedDefaults] objectForKey:kFSHKeyKeyboardLeftShift], YES);
 }
 
 + (void)setKeyboardLeftShift:(BOOL)value {
@@ -126,7 +226,7 @@ static NSString *FSHValidLayout(id value) {
 }
 
 + (BOOL)showShortestCodeHint {
-    return [[self sharedDefaults] boolForKey:kFSHKeyShowShortestCodeHint];
+    return FSHStoredBoolean([[self sharedDefaults] objectForKey:kFSHKeyShowShortestCodeHint], YES);
 }
 
 + (void)setShowShortestCodeHint:(BOOL)value {
@@ -134,7 +234,7 @@ static NSString *FSHValidLayout(id value) {
 }
 
 + (BOOL)disableImeInSensitiveFields {
-    return [[self sharedDefaults] boolForKey:kFSHKeyDisableImeSensitive];
+    return FSHStoredBoolean([[self sharedDefaults] objectForKey:kFSHKeyDisableImeSensitive], YES);
 }
 
 + (void)setDisableImeInSensitiveFields:(BOOL)value {
@@ -142,7 +242,7 @@ static NSString *FSHValidLayout(id value) {
 }
 
 + (BOOL)sensitiveIncludeNoPersonalizedLearning {
-    return [[self sharedDefaults] boolForKey:kFSHKeySensitiveNoPersonalized];
+    return FSHStoredBoolean([[self sharedDefaults] objectForKey:kFSHKeySensitiveNoPersonalized], NO);
 }
 
 + (void)setSensitiveIncludeNoPersonalizedLearning:(BOOL)value {

@@ -6,6 +6,7 @@
 
 @property (nonatomic, assign, readwrite) BOOL ready;
 @property (nonatomic, strong) NSDictionary<NSString *, NSArray<FSHCandidate *> *> *firstCharIndex;
+@property (nonatomic, strong) NSDictionary<NSString *, NSArray<FSHCandidate *> *> *twoCharIndex;
 @property (nonatomic, strong) NSDictionary<NSString *, NSArray<NSString *> *> *codesByValue;
 @property (nonatomic, strong) NSDictionary<NSString *, NSArray<NSString *> *> *spellsByValue;
 @property (nonatomic, strong) NSDictionary<NSString *, NSArray<NSString *> *> *valuesBySpell;
@@ -17,6 +18,7 @@
 - (BOOL)loadFromBundle:(NSBundle *)bundle error:(NSError **)error {
     self.ready = NO;
     self.firstCharIndex = nil;
+    self.twoCharIndex = nil;
     self.codesByValue = nil;
     self.spellsByValue = nil;
     self.valuesBySpell = nil;
@@ -66,14 +68,17 @@
     if (normalized.length == 0) {
         return @[];
     }
-    NSString *firstChar = [normalized substringToIndex:1];
-    NSArray<FSHCandidate *> *bucket = self.firstCharIndex[firstChar];
+    // Both indexes contain the original candidate objects in source order.
+    // One-character queries still return their entire first-character bucket.
+    NSArray<FSHCandidate *> *bucket = normalized.length == 1
+        ? self.firstCharIndex[[normalized substringToIndex:1]]
+        : self.twoCharIndex[[normalized substringToIndex:2]];
     if (bucket.count == 0) {
         return @[];
     }
 
     NSArray<FSHCandidate *> *candidates = bucket;
-    if (normalized.length > 1) {
+    if (normalized.length > 2) {
         NSMutableArray<FSHCandidate *> *filtered = [NSMutableArray array];
         for (FSHCandidate *candidate in bucket) {
             if ([candidate.code hasPrefix:normalized]) {
@@ -150,6 +155,7 @@
 - (void)buildIndexesWithCinEntries:(NSArray<FSHCandidate *> *)cinEntries
                        spellEntries:(NSArray<FSHCandidate *> *)spellEntries {
     NSMutableDictionary<NSString *, NSMutableArray<FSHCandidate *> *> *firstCharIndex = [NSMutableDictionary dictionary];
+    NSMutableDictionary<NSString *, NSMutableArray<FSHCandidate *> *> *twoCharIndex = [NSMutableDictionary dictionary];
     NSMutableDictionary<NSString *, NSMutableOrderedSet<NSString *> *> *codesByValue = [NSMutableDictionary dictionary];
 
     for (FSHCandidate *candidate in cinEntries) {
@@ -172,7 +178,17 @@
             bucket = [NSMutableArray array];
             firstCharIndex[firstChar] = bucket;
         }
-        [bucket addObject:[[FSHCandidate alloc] initWithCode:normalizedCode value:candidate.value]];
+        FSHCandidate *indexedCandidate = [[FSHCandidate alloc] initWithCode:normalizedCode value:candidate.value];
+        [bucket addObject:indexedCandidate];
+        if (normalizedCode.length > 1) {
+            NSString *twoChars = [normalizedCode substringToIndex:2];
+            NSMutableArray<FSHCandidate *> *twoCharBucket = twoCharIndex[twoChars];
+            if (!twoCharBucket) {
+                twoCharBucket = [NSMutableArray array];
+                twoCharIndex[twoChars] = twoCharBucket;
+            }
+            [twoCharBucket addObject:indexedCandidate];
+        }
     }
 
     NSMutableDictionary<NSString *, NSMutableOrderedSet<NSString *> *> *spellsByValue = [NSMutableDictionary dictionary];
@@ -202,6 +218,10 @@
     [firstCharIndex enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, NSMutableArray<FSHCandidate *> * _Nonnull obj, BOOL * _Nonnull stop) {
         finalIndex[key] = [obj copy];
     }];
+    NSMutableDictionary<NSString *, NSArray<FSHCandidate *> *> *finalTwoCharIndex = [NSMutableDictionary dictionaryWithCapacity:twoCharIndex.count];
+    [twoCharIndex enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, NSMutableArray<FSHCandidate *> * _Nonnull obj, BOOL * _Nonnull stop) {
+        finalTwoCharIndex[key] = [obj copy];
+    }];
 
     NSMutableDictionary<NSString *, NSArray<NSString *> *> *finalSpellsByValue = [NSMutableDictionary dictionaryWithCapacity:spellsByValue.count];
     [spellsByValue enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, NSMutableOrderedSet<NSString *> * _Nonnull obj, BOOL * _Nonnull stop) {
@@ -212,7 +232,8 @@
         finalSpellIndex[key] = obj.array;
     }];
 
-    self.firstCharIndex = finalIndex;
+    self.firstCharIndex = [finalIndex copy];
+    self.twoCharIndex = [finalTwoCharIndex copy];
     NSMutableDictionary<NSString *, NSArray<NSString *> *> *finalCodesByValue = [NSMutableDictionary dictionaryWithCapacity:codesByValue.count];
     [codesByValue enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, NSMutableOrderedSet<NSString *> * _Nonnull obj, BOOL * _Nonnull stop) {
         finalCodesByValue[key] = obj.array;

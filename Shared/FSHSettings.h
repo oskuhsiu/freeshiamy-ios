@@ -6,6 +6,14 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (NSUserDefaults *)sharedDefaults;
 + (void)registerDefaults;
+// Call from the containing app at launch, before registering defaults. The
+// extension only reads shared settings and never performs this migration.
++ (void)migrateLegacySettings;
++ (void)migrateLegacySettingsFromDefaults:(NSUserDefaults *)legacyDefaults
+                               suiteName:(NSString *)legacySuiteName
+                              toDefaults:(NSUserDefaults *)sharedDefaults
+                               suiteName:(NSString *)sharedSuiteName;
++ (BOOL)hasPersistedSettingForKey:(NSString *)key;
 
 + (NSInteger)keyboardHeightPercent;
 + (void)setKeyboardHeightPercent:(NSInteger)value;
@@ -14,9 +22,11 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)setKeyboardLayout:(NSString *)value;
 
 + (BOOL)showNumberRow;
++ (BOOL)effectiveShowNumberRow;
 + (void)setShowNumberRow:(BOOL)value;
 
 + (BOOL)keyboardLabelTop;
++ (BOOL)effectiveKeyboardLabelTop;
 + (void)setKeyboardLabelTop:(BOOL)value;
 
 + (BOOL)keyboardLeftShift;

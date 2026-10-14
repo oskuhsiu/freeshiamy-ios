@@ -12,6 +12,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *alternateHint;
 @property (nonatomic, assign) UIEdgeInsets hitAreaOutsets;
 
+- (void)updateAlternateHintTypography;
+
 @end
 
 NS_ASSUME_NONNULL_END

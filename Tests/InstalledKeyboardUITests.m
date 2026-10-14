@@ -67,15 +67,50 @@
     return nil;
 }
 
-- (XCUIElement *)row:(NSString *)title inSettings:(XCUIApplication *)settings {
-    NSPredicate *label = [NSPredicate predicateWithFormat:@"label == %@", title];
-    return [self settingsControl:[settings.cells matchingPredicate:label]
-                         stage:[@"Settings row: " stringByAppendingString:title]
-                   application:settings];
+- (XCUIElement *)settingsRowWithLabels:(NSArray<NSString *> *)labels
+                           identifier:(NSString *)identifier
+                                stage:(NSString *)stage
+                          application:(XCUIApplication *)settings {
+    NSPredicate *label = [NSPredicate predicateWithFormat:@"label IN %@", labels];
+    // Settings sometimes puts the semantic label on a button inside an
+    // unlabeled cell (as it does for General on iOS 26.2). Restrict button
+    // matches to rows so a navigation-bar button cannot masquerade as one.
+    XCUIElementQuery *buttons = identifier
+        ? [settings.buttons matchingIdentifier:identifier]
+        : [settings.cells.buttons matchingPredicate:label];
+    XCUIElementQuery *cells = identifier ? nil : [settings.cells matchingPredicate:label];
+    for (NSUInteger scroll = 0; scroll <= 8; scroll++) {
+        __block XCUIElement *target = nil;
+        NSPredicate *ready = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+            NSUInteger buttonCount = buttons.count;
+            NSUInteger cellCount = cells ? cells.count : 0;
+            if (buttonCount > 1 || cellCount > 1) return NO;
+            XCUIElement *button = buttonCount == 1 ? buttons.firstMatch : nil;
+            XCUIElement *cell = cellCount == 1 ? cells.firstMatch : nil;
+            // If both expose the label, they must be the same physical row.
+            if (button && cell && !CGRectIntersectsRect(button.frame, cell.frame)) return NO;
+            target = button.isHittable ? button : (cell.isHittable ? cell : nil);
+            return target != nil;
+        }];
+        XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
+                                                 initWithPredicate:ready object:settings];
+        if ([XCTWaiter waitForExpectations:@[expectation] timeout:2.0] == XCTWaiterResultCompleted) {
+            [self capture:stage application:settings];
+            return target;
+        }
+        if (scroll < 8) [settings swipeUp];
+    }
+    [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:settings];
+    XCTFail(@"%@: expected one visible, hittable semantic row; found %lu buttons and %lu cells",
+            stage, (unsigned long)buttons.count, (unsigned long)(cells ? cells.count : 0));
+    return nil;
 }
 
 - (BOOL)tapSettingsRow:(NSString *)title inSettings:(XCUIApplication *)settings {
-    XCUIElement *row = [self row:title inSettings:settings];
+    NSString *identifier = [title isEqualToString:@"General"] ? @"com.apple.settings.general" : nil;
+    XCUIElement *row = [self settingsRowWithLabels:@[title] identifier:identifier
+                                            stage:[@"Settings row: " stringByAppendingString:title]
+                                      application:settings];
     if (!row) return NO;
     [row tap];
     [self capture:[@"Opened Settings row: " stringByAppendingString:title] application:settings];
@@ -144,20 +179,22 @@
     if (![self tapSettingsRow:@"General" inSettings:settings]) return;
     if (![self tapSettingsRow:@"Keyboard" inSettings:settings]) return;
     if (![self tapSettingsRow:@"Keyboards" inSettings:settings]) return;
-    XCUIElement *add = [self settingsControl:[settings.cells matchingPredicate:
-        [NSPredicate predicateWithFormat:@"label BEGINSWITH %@", @"Add New Keyboard"]]
-                                      stage:@"Settings row: Add New Keyboard" application:settings];
+    XCUIElement *add = [self settingsRowWithLabels:@[@"Add New Keyboard", @"Add New Keyboard…", @"Add New Keyboard..."]
+                                        identifier:nil stage:@"Settings row: Add New Keyboard"
+                                      application:settings];
     if (!add) return;
     [add tap];
     [self capture:@"Opened Add New Keyboard" application:settings];
-    NSPredicate *extensionName = [NSPredicate predicateWithFormat:@"label CONTAINS %@ OR label CONTAINS %@", @"FreeShiamy", @"freeshiamy-ios"];
-    XCUIElement *registration = [self settingsControl:[settings.cells matchingPredicate:extensionName]
-                                               stage:@"Installed FreeShiamy listing" application:settings];
+    NSArray<NSString *> *extensionNames = @[@"FreeShiamy", @"freeshiamy-ios"];
+    XCUIElement *registration = [self settingsRowWithLabels:extensionNames identifier:nil
+                                                     stage:@"Installed FreeShiamy listing"
+                                               application:settings];
     if (!registration) return;
     [registration tap];
     [self capture:@"FreeShiamy registered through Settings" application:settings];
-    XCUIElement *configuration = [self settingsControl:[settings.cells matchingPredicate:extensionName]
-                                                stage:@"Enabled FreeShiamy settings row" application:settings];
+    XCUIElement *configuration = [self settingsRowWithLabels:extensionNames identifier:nil
+                                                      stage:@"Enabled FreeShiamy settings row"
+                                                application:settings];
     if (!configuration) return;
     [configuration tap];
     NSPredicate *fullAccessLabel = [NSPredicate predicateWithFormat:@"label == %@", @"Allow Full Access"];
