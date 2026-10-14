@@ -759,13 +759,42 @@
         attachment.lifetime = XCTAttachmentLifetimeKeepAlways;
         [self addAttachment:attachment];
     }
+    window.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
+    XCTAssertTrue([queryField becomeFirstResponder]);
+    NSPredicate *keyboardVisiblePredicate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        CGRect keyboardFrame = search.view.keyboardLayoutGuide.layoutFrame;
+        return keyboardFrame.size.height > search.view.safeAreaInsets.bottom + 100.0 &&
+               CGRectGetMinY(keyboardFrame) < CGRectGetHeight(search.view.bounds) - 100.0;
+    }];
+    XCTNSPredicateExpectation *keyboardVisible = [[XCTNSPredicateExpectation alloc] initWithPredicate:keyboardVisiblePredicate object:search];
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[keyboardVisible] timeout:10.0], XCTWaiterResultCompleted,
+                   @"The scene-backed test must actually observe keyboard occlusion");
+    [window layoutIfNeeded];
+    UIScrollView *scrollView = [search valueForKey:@"scrollView"];
+    CGRect fullSceneQuery = [queryField convertRect:queryField.bounds toView:scrollView];
+    XCTAssertGreaterThanOrEqual(CGRectGetMinY(fullSceneQuery), scrollView.contentOffset.y - 1.0);
+    XCTAssertLessThanOrEqual(CGRectGetMaxY(fullSceneQuery),
+                             scrollView.contentOffset.y + scrollView.bounds.size.height + 1.0);
+    XCTAssertLessThanOrEqual(CGRectGetMaxY(scrollView.frame),
+                             CGRectGetMinY(search.view.keyboardLayoutGuide.layoutFrame) + 1.0);
+    UIGraphicsImageRenderer *focusedRenderer = [[UIGraphicsImageRenderer alloc] initWithBounds:window.bounds];
+    __block BOOL focusedRendered = NO;
+    UIImage *focusedSnapshot = [focusedRenderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        focusedRendered = [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
+    }];
+    XCTAssertTrue(focusedRendered);
+    XCTAttachment *focusedAttachment = [XCTAttachment attachmentWithImage:focusedSnapshot];
+    focusedAttachment.name = @"Host search - focused with keyboard occlusion";
+    focusedAttachment.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:focusedAttachment];
+    [queryField resignFirstResponder];
+
     UITraitCollection *largeText = [UITraitCollection traitCollectionWithPreferredContentSizeCategory:UIContentSizeCategoryAccessibilityMedium];
     [navigation setOverrideTraitCollection:largeText forChildViewController:search];
     window.frame = CGRectMake(0.0, 0.0, 320.0, 390.0);
     XCTAssertTrue([queryField becomeFirstResponder]);
     [self waitForSeconds:0.5];
     [window layoutIfNeeded];
-    UIScrollView *scrollView = [search valueForKey:@"scrollView"];
     CGRect queryInScroll = [queryField convertRect:queryField.bounds toView:scrollView];
     CGFloat visibleTop = scrollView.contentOffset.y;
     CGFloat visibleBottom = visibleTop + scrollView.bounds.size.height;
