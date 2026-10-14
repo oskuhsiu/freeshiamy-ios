@@ -8,6 +8,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *output;
 @property (nonatomic, assign) BOOL isSpecial;
 @property (nonatomic, assign) CGFloat weight;
+@property (nonatomic, copy, nullable) void (^accessibilityActivationHandler)(void);
 
 @end
 

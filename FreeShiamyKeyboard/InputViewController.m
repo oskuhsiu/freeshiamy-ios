@@ -28,6 +28,8 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 
 @property (nonatomic, strong) NSTimer *deleteRepeatTimer;
 @property (nonatomic, assign) BOOL deleteLockout;
+@property (nonatomic, assign) BOOL deletePressActive;
+@property (nonatomic, copy) NSUUID *deleteDocumentIdentifier;
 
 @property (nonatomic, copy) NSString *shortestHint;
 
@@ -97,6 +99,17 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [self.keyboardView cancelActivePress];
+    [self stopDeleteRepeat];
+    self.deleteLockout = NO;
+}
+
+- (void)dealloc {
+    [self.deleteRepeatTimer invalidate];
 }
 
 - (void)textWillChange:(id<UITextInput>)textInput {
@@ -185,9 +198,7 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 #pragma mark - Input Handling
 
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didPressKeyCode:(NSInteger)keyCode output:(NSString *)output {
-    if ([self shouldBlockForSensitiveField]) {
-        [self clearComposingState];
-        [self advanceToNextInputMode];
+    if ([self blockSensitiveInputIfNeeded]) {
         return;
     }
     [self clearHint];
@@ -236,6 +247,9 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didBeginPressKeyCode:(NSInteger)keyCode output:(NSString *)output {
     if (keyCode == FSHKeyCodeDelete) {
+        if ([self blockSensitiveInputIfNeeded]) {
+            return;
+        }
         self.deleteLockout = (self.rawBuffer.length > 0 || self.reverseState == FSHReverseStateActive);
         [self startDeleteRepeat];
     }
@@ -433,13 +447,21 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 }
 
 - (void)handleDeleteOnce {
+    if (self.deletePressActive && [self deleteTargetChanged]) {
+        [self stopDeleteRepeat];
+        return;
+    }
+    if ([self blockSensitiveInputIfNeeded]) {
+        return;
+    }
     if (self.reverseState == FSHReverseStateActive) {
         self.reverseState = FSHReverseStateEntering;
         [self refreshCandidatesAndUI];
         return;
     }
     if (self.rawBuffer.length > 0) {
-        [self.rawBuffer deleteCharactersInRange:NSMakeRange(self.rawBuffer.length - 1, 1)];
+        NSRange lastCharacter = [self.rawBuffer rangeOfComposedCharacterSequenceAtIndex:self.rawBuffer.length - 1];
+        [self.rawBuffer deleteCharactersInRange:lastCharacter];
         [self updateReverseStateIfNeeded];
         [self refreshCandidatesAndUI];
         return;
@@ -451,14 +473,42 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 }
 
 - (void)startDeleteRepeat {
-    [self handleDeleteOnce];
     [self stopDeleteRepeat];
-    self.deleteRepeatTimer = [NSTimer scheduledTimerWithTimeInterval:0.16 target:self selector:@selector(handleDeleteOnce) userInfo:nil repeats:YES];
+    self.deleteDocumentIdentifier = self.textDocumentProxy.documentIdentifier;
+    self.deletePressActive = YES;
+    [self handleDeleteOnce];
+    if (!self.deletePressActive) {
+        return;
+    }
+    [self scheduleDeleteRepeatAfter:0.4];
 }
 
 - (void)stopDeleteRepeat {
+    self.deletePressActive = NO;
+    self.deleteDocumentIdentifier = nil;
     [self.deleteRepeatTimer invalidate];
     self.deleteRepeatTimer = nil;
+}
+
+- (BOOL)deleteTargetChanged {
+    NSUUID *current = self.textDocumentProxy.documentIdentifier;
+    return self.deleteDocumentIdentifier != current && ![self.deleteDocumentIdentifier isEqual:current];
+}
+
+- (void)scheduleDeleteRepeatAfter:(NSTimeInterval)delay {
+    __weak typeof(self) weakSelf = self;
+    NSTimer *timer = [NSTimer timerWithTimeInterval:delay repeats:NO block:^(NSTimer *firedTimer) {
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf || !strongSelf.deletePressActive || strongSelf.deleteRepeatTimer != firedTimer) {
+            return;
+        }
+        [strongSelf handleDeleteOnce];
+        if (strongSelf.deletePressActive) {
+            [strongSelf scheduleDeleteRepeatAfter:0.12];
+        }
+    }];
+    self.deleteRepeatTimer = timer;
+    [[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
 }
 
 #pragma mark - Reverse Lookup
@@ -487,6 +537,9 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 #pragma mark - Commit
 
 - (void)commitCandidateAtIndex:(NSUInteger)index typedCodeLength:(NSUInteger)typedCodeLength isReverse:(BOOL)isReverse {
+    if ([self blockSensitiveInputIfNeeded]) {
+        return;
+    }
     if (index >= self.candidates.count) {
         return;
     }
@@ -501,6 +554,9 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 }
 
 - (void)commitRawBuffer {
+    if ([self blockSensitiveInputIfNeeded]) {
+        return;
+    }
     if (self.rawBuffer.length == 0) {
         return;
     }
@@ -514,10 +570,16 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 #pragma mark - Candidate Bar Delegate
 
 - (void)candidateBarViewDidTapRawBuffer:(FSHCandidateBarView *)barView {
+    if ([self blockSensitiveInputIfNeeded]) {
+        return;
+    }
     [self commitRawBuffer];
 }
 
 - (void)candidateBarView:(FSHCandidateBarView *)barView didSelectCandidateAtIndex:(NSUInteger)index {
+    if ([self blockSensitiveInputIfNeeded]) {
+        return;
+    }
     if (self.reverseState == FSHReverseStateEntering && index < self.exactCount) {
         [self triggerReverseLookupWithBaseIndex:index];
         return;
@@ -695,6 +757,8 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
     BOOL sensitive = [self isSensitiveField];
     if (sensitive && !self.isInSensitiveField) {
         self.isInSensitiveField = YES;
+        [self stopDeleteRepeat];
+        self.deleteLockout = NO;
         [self clearComposingState];
         [self advanceToNextInputMode];
         [self dismissKeyboard];
@@ -722,10 +786,23 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 }
 
 - (BOOL)shouldBlockForSensitiveField {
-    if (!self.disableIMEInSensitive || !self.hasHostConnection) {
+    if (!self.disableIMEInSensitive) {
         return NO;
     }
-    return self.isInSensitiveField;
+    return self.isInSensitiveField || [self isSensitiveField];
+}
+
+- (BOOL)blockSensitiveInputIfNeeded {
+    if (![self shouldBlockForSensitiveField]) {
+        return NO;
+    }
+    [self stopDeleteRepeat];
+    self.deleteLockout = NO;
+    [self clearComposingState];
+    if (!self.isInSensitiveField) {
+        [self handleSensitiveFieldIfNeeded];
+    }
+    return YES;
 }
 
 @end

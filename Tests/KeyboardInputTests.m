@@ -1,0 +1,243 @@
+#import <XCTest/XCTest.h>
+#import "InputViewController.h"
+#import "FSHKeyboardView.h"
+#import "FSHKeyButton.h"
+#import "FSHCandidateBarView.h"
+#import "FSHCandidate.h"
+
+@interface InputViewController (KeyboardInputTests)
+- (void)candidateBarViewDidTapRawBuffer:(FSHCandidateBarView *)barView;
+- (void)candidateBarView:(FSHCandidateBarView *)barView didSelectCandidateAtIndex:(NSUInteger)index;
+@end
+
+@interface FSHFakeDocumentProxy : NSObject
+@property (nonatomic, strong) NSMutableString *text;
+@property (nonatomic, assign, getter=isSecureTextEntry) BOOL secureTextEntry;
+@property (nonatomic, copy) NSUUID *documentIdentifier;
+@end
+
+@implementation FSHFakeDocumentProxy
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _text = [NSMutableString string];
+        _documentIdentifier = [NSUUID UUID];
+    }
+    return self;
+}
+
+- (void)insertText:(NSString *)text {
+    [self.text appendString:text];
+}
+
+- (void)deleteBackward {
+    if (self.text.length > 0) {
+        NSRange last = [self.text rangeOfComposedCharacterSequenceAtIndex:self.text.length - 1];
+        [self.text deleteCharactersInRange:last];
+    }
+}
+@end
+
+@interface FSHTestInputController : InputViewController
+@property (nonatomic, strong) FSHFakeDocumentProxy *fakeProxy;
+@property (nonatomic, assign) NSUInteger inputModeAdvanceCount;
+@end
+
+@implementation FSHTestInputController
+
+- (void)loadEngineAsync {
+    // These controller-event tests isolate proxy behavior. Dictionary loading is
+    // covered separately using the extension's actual resource bundle.
+}
+
+- (id<UITextDocumentProxy>)textDocumentProxy {
+    return (id<UITextDocumentProxy>)self.fakeProxy;
+}
+
+- (void)advanceToNextInputMode {
+    self.inputModeAdvanceCount++;
+}
+
+- (void)dismissKeyboard {
+}
+@end
+
+@interface KeyboardInputTests : XCTestCase
+@property (nonatomic, strong) FSHTestInputController *controller;
+@property (nonatomic, strong) FSHFakeDocumentProxy *proxy;
+@property (nonatomic, strong) FSHKeyboardView *keyboard;
+@property (nonatomic, strong) FSHKeyButton *deleteButton;
+@end
+
+@implementation KeyboardInputTests
+
+- (void)setUp {
+    [super setUp];
+    self.proxy = [[FSHFakeDocumentProxy alloc] init];
+    self.controller = [[FSHTestInputController alloc] init];
+    self.controller.fakeProxy = self.proxy;
+    [self.controller loadViewIfNeeded];
+    self.keyboard = [self.controller valueForKey:@"keyboardView"];
+    self.deleteButton = [self.keyboard valueForKey:@"deleteButton"];
+    XCTAssertNotNil(self.deleteButton);
+}
+
+- (void)tearDown {
+    [self.controller viewWillDisappear:NO];
+    self.deleteButton = nil;
+    self.keyboard = nil;
+    self.controller = nil;
+    self.proxy = nil;
+    [super tearDown];
+}
+
+- (NSMutableString *)rawBuffer {
+    return [self.controller valueForKey:@"rawBuffer"];
+}
+
+- (void)tapDelete {
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+}
+
+- (void)waitForSeconds:(NSTimeInterval)seconds {
+    XCTestExpectation *elapsed = [self expectationWithDescription:@"Timer elapsed"];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(seconds * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        [elapsed fulfill];
+    });
+    [self waitForExpectations:@[elapsed] timeout:seconds + 1.0];
+}
+
+- (void)testTapDeletesHostExactlyOnce {
+    [self.proxy.text setString:@"abc"];
+    [self tapDelete];
+    XCTAssertEqualObjects(self.proxy.text, @"ab");
+    XCTAssertNil([self.controller valueForKey:@"deleteRepeatTimer"]);
+}
+
+- (void)testTapDeletesRawBufferExactlyOnce {
+    [self.proxy.text setString:@"host"];
+    [[self rawBuffer] setString:@"ab"];
+    [self tapDelete];
+    XCTAssertEqualObjects([self rawBuffer], @"a");
+    XCTAssertEqualObjects(self.proxy.text, @"host");
+}
+
+- (void)testRepeatNeverCrossesFromRawBufferIntoHost {
+    [self.proxy.text setString:@"host"];
+    [[self rawBuffer] setString:@"a"];
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
+    [self waitForSeconds:0.75];
+    XCTAssertEqualObjects([self rawBuffer], @"");
+    XCTAssertEqualObjects(self.proxy.text, @"host");
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+    [self waitForSeconds:0.2];
+    XCTAssertEqualObjects(self.proxy.text, @"host");
+}
+
+- (void)testCancelAndDragExitStopRepeat {
+    for (NSNumber *event in @[@(UIControlEventTouchCancel), @(UIControlEventTouchDragExit)]) {
+        [self.proxy.text setString:@"abc"];
+        [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
+        [self.deleteButton sendActionsForControlEvents:event.unsignedIntegerValue];
+        [self waitForSeconds:0.55];
+        XCTAssertEqualObjects(self.proxy.text, @"ab");
+    }
+}
+
+- (void)testRepeatStopsWhenHostDocumentChanges {
+    [self.proxy.text setString:@"abc"];
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
+    self.proxy.documentIdentifier = [NSUUID UUID];
+    [self waitForSeconds:0.55];
+    XCTAssertEqualObjects(self.proxy.text, @"ab");
+    XCTAssertNil([self.controller valueForKey:@"deleteRepeatTimer"]);
+}
+
+- (void)testEquivalentDocumentUUIDKeepsRepeatActive {
+    [self.proxy.text setString:@"abcdef"];
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
+    self.proxy.documentIdentifier = [[NSUUID alloc] initWithUUIDString:self.proxy.documentIdentifier.UUIDString];
+    [self waitForSeconds:0.55];
+    XCTAssertLessThan(self.proxy.text.length, (NSUInteger)5);
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+}
+
+- (void)testMissingDocumentIdentifierRemainsStableUntilItChanges {
+    self.proxy.documentIdentifier = nil;
+    [self.proxy.text setString:@"abcdef"];
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
+    [self waitForSeconds:0.55];
+    XCTAssertLessThan(self.proxy.text.length, (NSUInteger)5);
+    self.proxy.documentIdentifier = [NSUUID UUID];
+    NSUInteger lengthAtChange = self.proxy.text.length;
+    [self waitForSeconds:0.25];
+    XCTAssertEqual(self.proxy.text.length, lengthAtChange);
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+}
+
+- (void)testHoldActuallyRepeatsAfterInitialDelay {
+    [self.proxy.text setString:@"abcdef"];
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
+    XCTAssertEqualObjects(self.proxy.text, @"abcde");
+    [self waitForSeconds:0.66];
+    XCTAssertLessThan(self.proxy.text.length, (NSUInteger)5);
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+}
+
+- (void)testDeleteRemovesWholeComposedCharacter {
+    for (NSString *raw in @[@"a😀", @"a☹️", @"aé", @"a👨‍👩‍👧‍👦"]) {
+        [[self rawBuffer] setString:raw];
+        [self tapDelete];
+        XCTAssertEqualObjects([self rawBuffer], @"a", @"Failed for %@", raw);
+    }
+}
+
+- (void)testAccessibleActivationDeletesExactlyOnce {
+    [self.proxy.text setString:@"abc"];
+    XCTAssertTrue([self.deleteButton accessibilityActivate]);
+    XCTAssertEqualObjects(self.proxy.text, @"ab");
+    XCTAssertNil([self.controller valueForKey:@"deleteRepeatTimer"]);
+}
+
+- (void)testDisappearanceAndKeyRebuildCancelRepeat {
+    [self.proxy.text setString:@"abc"];
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
+    [self.controller viewWillDisappear:NO];
+    [self waitForSeconds:0.55];
+    XCTAssertEqualObjects(self.proxy.text, @"ab");
+
+    [self.proxy.text setString:@"abc"];
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
+    [self.keyboard reloadKeys];
+    [self waitForSeconds:0.55];
+    XCTAssertEqualObjects(self.proxy.text, @"ab");
+}
+
+- (void)testSensitiveFieldBlocksFirstKeyDeleteAndCandidateCommits {
+    self.proxy.secureTextEntry = YES;
+    [self.controller setValue:@YES forKey:@"disableIMEInSensitive"];
+    [self.proxy.text setString:@"host"];
+    [[self rawBuffer] setString:@"ab"];
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
+    [self waitForSeconds:0.55];
+    XCTAssertEqualObjects(self.proxy.text, @"host");
+    XCTAssertEqualObjects([self rawBuffer], @"");
+
+    [[self rawBuffer] setString:@"ab"];
+    FSHCandidateBarView *bar = [self.controller valueForKey:@"candidateBar"];
+    [self.controller candidateBarViewDidTapRawBuffer:bar];
+    XCTAssertEqualObjects(self.proxy.text, @"host");
+    XCTAssertEqualObjects([self rawBuffer], @"");
+
+    [[self rawBuffer] setString:@"ab"];
+    [self.controller setValue:@[[[FSHCandidate alloc] initWithCode:@"ab" value:@"secret"]]
+                      forKey:@"candidates"];
+    [self.controller candidateBarView:bar didSelectCandidateAtIndex:0];
+    XCTAssertEqualObjects(self.proxy.text, @"host");
+    XCTAssertEqualObjects([self rawBuffer], @"");
+}
+
+@end

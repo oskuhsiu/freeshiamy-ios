@@ -19,6 +19,7 @@
 @property (nonatomic, strong) FSHKeyButton *deleteButton;
 @property (nonatomic, strong) FSHKeyButton *modeButton;
 @property (nonatomic, strong) FSHKeyButton *emojiButton;
+@property (nonatomic, assign) BOOL deleteIsPressed;
 
 @end
 
@@ -119,6 +120,7 @@
 }
 
 - (void)reloadKeys {
+    [self cancelActivePress];
     for (NSArray<FSHKeyButton *> *row in self.rowButtons) {
         for (FSHKeyButton *button in row) {
             [button removeFromSuperview];
@@ -330,11 +332,21 @@
     [button setTitleColor:titleColor forState:UIControlStateHighlighted];
     [button setTitleColor:titleColor forState:UIControlStateSelected];
     button.tintColor = titleColor;
-    [button addTarget:self action:@selector(handleKeyPress:) forControlEvents:UIControlEventTouchUpInside];
+    if (descriptor.keyCode != FSHKeyCodeDelete) {
+        [button addTarget:self action:@selector(handleKeyPress:) forControlEvents:UIControlEventTouchUpInside];
+    }
 
     if (descriptor.keyCode == FSHKeyCodeDelete) {
         [button addTarget:self action:@selector(handleKeyDown:) forControlEvents:UIControlEventTouchDown];
-        [button addTarget:self action:@selector(handleKeyUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+        [button addTarget:self action:@selector(handleKeyUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel | UIControlEventTouchDragExit];
+        button.accessibilityLabel = @"Delete";
+        __weak typeof(self) weakSelf = self;
+        button.accessibilityActivationHandler = ^{
+            typeof(self) strongSelf = weakSelf;
+            if ([strongSelf.delegate respondsToSelector:@selector(keyboardView:didPressKeyCode:output:)]) {
+                [strongSelf.delegate keyboardView:strongSelf didPressKeyCode:FSHKeyCodeDelete output:nil];
+            }
+        };
         self.deleteButton = button;
     }
     if (descriptor.keyCode == FSHKeyCodeModeChange) {
@@ -446,14 +458,23 @@
 }
 
 - (void)handleKeyDown:(FSHKeyButton *)sender {
+    self.deleteIsPressed = YES;
     if ([self.delegate respondsToSelector:@selector(keyboardView:didBeginPressKeyCode:output:)]) {
         [self.delegate keyboardView:self didBeginPressKeyCode:sender.keyCode output:sender.output];
     }
 }
 
 - (void)handleKeyUp:(FSHKeyButton *)sender {
+    [self cancelActivePress];
+}
+
+- (void)cancelActivePress {
+    if (!self.deleteIsPressed) {
+        return;
+    }
+    self.deleteIsPressed = NO;
     if ([self.delegate respondsToSelector:@selector(keyboardView:didEndPressKeyCode:output:)]) {
-        [self.delegate keyboardView:self didEndPressKeyCode:sender.keyCode output:sender.output];
+        [self.delegate keyboardView:self didEndPressKeyCode:FSHKeyCodeDelete output:nil];
     }
 }
 

@@ -4,6 +4,7 @@
 # Xcode
 build/
 DerivedData/
+ci-artifacts/
 *.pbxuser
 !default.pbxuser
 *.mode1v3

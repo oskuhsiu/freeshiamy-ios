@@ -48,6 +48,7 @@ static const NSInteger FSHKeyCodeEnter = 10;
 @property (nonatomic, assign) BOOL capsLockOn;
 
 - (void)reloadKeys;
+- (void)cancelActivePress;
 
 @end
 
