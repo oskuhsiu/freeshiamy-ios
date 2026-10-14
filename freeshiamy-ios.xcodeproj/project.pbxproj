@@ -27,6 +27,8 @@
 		F50000000000000000000006 /* FSHCandidate.m in Tests */ = {isa = PBXBuildFile; fileRef = 138F4543E2894DCA54D83109 /* FSHCandidate.m */; };
 		F50000000000000000000007 /* FSHCinParser.m in Tests */ = {isa = PBXBuildFile; fileRef = AAE7D1FC9103040053204A84 /* FSHCinParser.m */; };
 		F50000000000000000000008 /* FSHShiamyEngine.m in Tests */ = {isa = PBXBuildFile; fileRef = 9C4A0EE446BE0734E999F76A /* FSHShiamyEngine.m */; };
+		F50000000000000000000023 /* freeshiamy.cin in Tests */ = {isa = PBXBuildFile; fileRef = DD34322BD5D30BCF041C9642 /* freeshiamy.cin */; };
+		F50000000000000000000024 /* cht_spells.cin in Tests */ = {isa = PBXBuildFile; fileRef = 44626E78E737841AC99DC274 /* cht_spells.cin */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -258,6 +260,7 @@
 			buildPhases = (
 				F50000000000000000000017 /* Sources */,
 				F50000000000000000000014 /* Frameworks */,
+				F50000000000000000000022 /* Resources */,
 			);
 			buildRules = ();
 			dependencies = ( F50000000000000000000018 /* App dependency */, );
@@ -319,6 +322,15 @@
 			files = (
 				6AF3A9CC8DFE424129F6974D /* freeshiamy.cin in Resources */,
 				735493A71C27B0F6F33D90CB /* cht_spells.cin in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F50000000000000000000022 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F50000000000000000000023 /* freeshiamy.cin in Tests */,
+				F50000000000000000000024 /* cht_spells.cin in Tests */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

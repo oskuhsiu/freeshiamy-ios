@@ -34,6 +34,16 @@
         }
         NSString *code = [trimmed substringToIndex:splitRange.location];
         NSString *value = [[trimmed substringFromIndex:splitRange.location] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        // A whitespace-delimited '#' after a nonempty value begins an inline
+        // comment. A standalone '#' value remains literal.
+        for (NSUInteger index = 1; index < value.length; index++) {
+            if ([value characterAtIndex:index] == '#' &&
+                [whitespace characterIsMember:[value characterAtIndex:index - 1]] &&
+                (index + 1 == value.length || [whitespace characterIsMember:[value characterAtIndex:index + 1]])) {
+                value = [[value substringToIndex:index] stringByTrimmingCharactersInSet:whitespace];
+                break;
+            }
+        }
         if (code.length == 0 || value.length == 0) {
             return;
         }

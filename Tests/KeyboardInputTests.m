@@ -5,6 +5,7 @@
 #import "FSHCandidateBarView.h"
 #import "FSHCandidate.h"
 #import "FSHShiamyEngine.h"
+#import "FSHCinParser.h"
 
 @interface InputViewController (KeyboardInputTests)
 - (void)candidateBarViewDidTapRawBuffer:(FSHCandidateBarView *)barView;
@@ -297,6 +298,38 @@
     [self.deleteButton sendActionsForControlEvents:UIControlEventTouchUpInside];
     [self tapDelete];
     XCTAssertEqualObjects(self.proxy.text, @"abcd");
+}
+
+- (void)testParserRemovesTrailingCommentButPreservesLiteralHashValue {
+    NSString *fixture = @"#jp6 汶\nj03 腕 # non official\na #\nx A#B\n";
+    NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:
+                      [NSString stringWithFormat:@"%@.cin", [NSUUID UUID].UUIDString]];
+    NSError *error = nil;
+    XCTAssertTrue([fixture writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error]);
+    XCTAssertNil(error);
+    NSArray<FSHCandidate *> *entries = [FSHCinParser parseCinAtPath:path error:&error];
+    [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+    XCTAssertNil(error);
+    XCTAssertEqual(entries.count, (NSUInteger)3);
+    XCTAssertEqualObjects(entries[0].value, @"腕");
+    XCTAssertEqualObjects(entries[1].value, @"#");
+    XCTAssertEqualObjects(entries[2].value, @"A#B");
+}
+
+- (void)testShippedSpellCorpusDoesNotLeakInlineCommentIntoCandidate {
+    FSHShiamyEngine *engine = [[FSHShiamyEngine alloc] init];
+    NSError *error = nil;
+    XCTAssertTrue([engine loadFromBundle:[NSBundle bundleForClass:[self class]] error:&error], @"%@", error);
+    XCTAssertNil(error);
+    XCTAssertEqualObjects([engine spellForValue:@"腕"], @"j03");
+    NSArray<FSHCandidate *> *candidates = [engine reverseLookupCandidatesForBaseValue:@"腕"];
+    XCTAssertTrue(candidates.count > 0);
+    BOOL foundWrist = NO;
+    for (FSHCandidate *candidate in candidates) {
+        foundWrist |= [candidate.value isEqualToString:@"腕"];
+        XCTAssertEqual([candidate.value rangeOfString:@"non official"].location, NSNotFound);
+    }
+    XCTAssertTrue(foundWrist);
 }
 
 @end

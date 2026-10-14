@@ -23,7 +23,7 @@ This branch starts from `master` at `2d449c3ce19b5faaa0704d4c67a69a4e75f0736f`. 
 | F17 | Open | Settings setters each rebuild all keys | One rebuild for one combined settings snapshot |
 | F18 | Open | Candidates expose value only | Code/exactness/shortcut semantics match current digit mapping |
 | F19 | Open | Fixed key/candidate fonts and settings row heights | Dynamic Type visual/accessibility checks |
-| F20 | Open | Spell data comment appears in candidate value | `j03 腕 # non official` parses to `腕`; literal # retained |
+| F20 | Under test | Spell data comment appears in candidate value | `j03 腕 # non official` parses to `腕`; literal # value retained |
 | F21 | Open | Engine reports ready after parse failures | Atomic missing/unreadable/empty-dictionary failure and visible error |
 | F22 | Open | Background load mutates live engine | Publish completed engine on main, reject stale result |
 | F23 | Open | Homophone index keeps first pronunciation only | All known readings for 行/樂 with stable deduped order |
