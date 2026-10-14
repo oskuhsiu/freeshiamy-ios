@@ -6,7 +6,7 @@
 
 @property (nonatomic, assign, readwrite) BOOL ready;
 @property (nonatomic, strong) NSDictionary<NSString *, NSArray<FSHCandidate *> *> *firstCharIndex;
-@property (nonatomic, strong) NSDictionary<NSString *, NSString *> *shortestCodeByValue;
+@property (nonatomic, strong) NSDictionary<NSString *, NSArray<NSString *> *> *codesByValue;
 @property (nonatomic, strong) NSDictionary<NSString *, NSArray<NSString *> *> *spellsByValue;
 @property (nonatomic, strong) NSDictionary<NSString *, NSArray<NSString *> *> *valuesBySpell;
 
@@ -17,7 +17,7 @@
 - (BOOL)loadFromBundle:(NSBundle *)bundle error:(NSError **)error {
     self.ready = NO;
     self.firstCharIndex = nil;
-    self.shortestCodeByValue = nil;
+    self.codesByValue = nil;
     self.spellsByValue = nil;
     self.valuesBySpell = nil;
 
@@ -120,7 +120,11 @@
 }
 
 - (NSString *)shortestCodeForValue:(NSString *)value {
-    return self.shortestCodeByValue[value];
+    return self.codesByValue[value].firstObject;
+}
+
+- (NSArray<NSString *> *)allCodesForValue:(NSString *)value {
+    return self.codesByValue[value] ?: @[];
 }
 
 - (NSString *)spellForValue:(NSString *)value {
@@ -146,26 +150,22 @@
 - (void)buildIndexesWithCinEntries:(NSArray<FSHCandidate *> *)cinEntries
                        spellEntries:(NSArray<FSHCandidate *> *)spellEntries {
     NSMutableDictionary<NSString *, NSMutableArray<FSHCandidate *> *> *firstCharIndex = [NSMutableDictionary dictionary];
-    NSMutableDictionary<NSString *, NSString *> *shortestCodeByValue = [NSMutableDictionary dictionary];
-    NSMutableDictionary<NSString *, NSMutableSet<NSString *> *> *seenCodesByValue = [NSMutableDictionary dictionary];
+    NSMutableDictionary<NSString *, NSMutableOrderedSet<NSString *> *> *codesByValue = [NSMutableDictionary dictionary];
 
     for (FSHCandidate *candidate in cinEntries) {
         NSString *normalizedCode = [self normalizedCode:candidate.code];
         if (normalizedCode.length == 0) {
             continue;
         }
-        NSMutableSet<NSString *> *seenCodes = seenCodesByValue[candidate.value];
-        if (!seenCodes) {
-            seenCodes = [NSMutableSet set];
-            seenCodesByValue[candidate.value] = seenCodes;
+        NSMutableOrderedSet<NSString *> *codes = codesByValue[candidate.value];
+        if (!codes) {
+            codes = [NSMutableOrderedSet orderedSet];
+            codesByValue[candidate.value] = codes;
         }
-        if ([seenCodes containsObject:normalizedCode]) {
+        if ([codes containsObject:normalizedCode]) {
             continue;
         }
-        [seenCodes addObject:normalizedCode];
-        if (!shortestCodeByValue[candidate.value]) {
-            shortestCodeByValue[candidate.value] = normalizedCode;
-        }
+        [codes addObject:normalizedCode];
         NSString *firstChar = [normalizedCode substringToIndex:1];
         NSMutableArray<FSHCandidate *> *bucket = firstCharIndex[firstChar];
         if (!bucket) {
@@ -213,7 +213,11 @@
     }];
 
     self.firstCharIndex = finalIndex;
-    self.shortestCodeByValue = [shortestCodeByValue copy];
+    NSMutableDictionary<NSString *, NSArray<NSString *> *> *finalCodesByValue = [NSMutableDictionary dictionaryWithCapacity:codesByValue.count];
+    [codesByValue enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, NSMutableOrderedSet<NSString *> * _Nonnull obj, BOOL * _Nonnull stop) {
+        finalCodesByValue[key] = obj.array;
+    }];
+    self.codesByValue = [finalCodesByValue copy];
     self.spellsByValue = [finalSpellsByValue copy];
     self.valuesBySpell = finalSpellIndex;
 }

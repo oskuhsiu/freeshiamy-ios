@@ -6,6 +6,12 @@
 #import "FSHCandidate.h"
 #import "FSHShiamyEngine.h"
 #import "FSHCinParser.h"
+#import "CodeSearchViewController.h"
+#import "ViewController.h"
+
+@interface ViewController (CodeSearchTests)
+- (void)openCodeSearch;
+@end
 
 @class FSHFakeDocumentProxy;
 
@@ -579,6 +585,98 @@
         }
         XCTAssertTrue(found, @"Missing alternate code %@", code);
     }
+}
+
+- (void)testAllShiamyCodesForCharacterPreserveShortestAndAlternatives {
+    FSHShiamyEngine *engine = [[FSHShiamyEngine alloc] init];
+    NSError *error = nil;
+    XCTAssertTrue([engine loadFromBundle:[NSBundle bundleForClass:[self class]] error:&error], @"%@", error);
+    XCTAssertEqualObjects([engine allCodesForValue:@"行"], (@[@"mv", @"miri"]));
+    XCTAssertEqualObjects([engine allCodesForValue:@"中"], (@[@"ci", @"cj", @"cjv"]));
+    XCTAssertEqualObjects([engine shortestCodeForValue:@"行"], @"mv");
+    XCTAssertEqualObjects([engine shortestCodeForValue:@"中"], @"ci");
+    XCTAssertEqualObjects([engine allCodesForValue:@"😀"], @[]);
+
+    FSHFixtureEngine *fixture = [[FSHFixtureEngine alloc] init];
+    fixture.mainPath = @"/missing-main.cin";
+    fixture.spellPath = @"/missing-spell.cin";
+    XCTAssertFalse([fixture loadFromBundle:[NSBundle mainBundle] error:&error]);
+    XCTAssertEqualObjects([fixture allCodesForValue:@"中"], @[]);
+}
+
+- (void)testHostCodeSearchLoadsOfflineAndFormatsMultipleCharacters {
+    CodeSearchViewController *search = [[CodeSearchViewController alloc] init];
+    [search loadViewIfNeeded];
+    UITextField *queryField = [search valueForKey:@"queryField"];
+    UITextView *resultsView = [search valueForKey:@"resultsView"];
+    XCTAssertEqualObjects(queryField.accessibilityIdentifier, @"codeSearch.query");
+    XCTAssertEqualObjects(resultsView.accessibilityIdentifier, @"codeSearch.results");
+    queryField.text = @"行中😀";
+    [queryField sendActionsForControlEvents:UIControlEventEditingChanged];
+    NSPredicate *loadedPredicate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return [search valueForKey:@"engine"] != nil || [search valueForKey:@"loadErrorDescription"] != nil;
+    }];
+    XCTNSPredicateExpectation *completed = [[XCTNSPredicateExpectation alloc] initWithPredicate:loadedPredicate object:search];
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[completed] timeout:20.0], XCTWaiterResultCompleted);
+    XCTAssertNil([search valueForKey:@"loadErrorDescription"]);
+    XCTAssertEqualObjects(resultsView.text, @"行：最短 MV；其他 MIRI\n中：最短 CI；其他 CJ、CJV\n😀：查無字碼");
+    queryField.text = @"";
+    [queryField sendActionsForControlEvents:UIControlEventEditingChanged];
+    XCTAssertEqualObjects(resultsView.text, @"輸入一個或多個字開始查詢。");
+}
+
+- (void)testHostCodeSearchRendersInAttachedWindow {
+    CodeSearchViewController *search = [[CodeSearchViewController alloc] init];
+    UINavigationController *navigation = [[UINavigationController alloc] initWithRootViewController:search];
+    UIWindow *window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    window.rootViewController = navigation;
+    [window makeKeyAndVisible];
+    [search loadViewIfNeeded];
+    NSPredicate *loadedPredicate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return [search valueForKey:@"engine"] != nil || [search valueForKey:@"loadErrorDescription"] != nil;
+    }];
+    XCTNSPredicateExpectation *completed = [[XCTNSPredicateExpectation alloc] initWithPredicate:loadedPredicate object:search];
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[completed] timeout:20.0], XCTWaiterResultCompleted);
+    XCTAssertNil([search valueForKey:@"loadErrorDescription"]);
+    UITextField *queryField = [search valueForKey:@"queryField"];
+    UITextView *resultsView = [search valueForKey:@"resultsView"];
+    queryField.text = @"行中";
+    [queryField sendActionsForControlEvents:UIControlEventEditingChanged];
+    [window layoutIfNeeded];
+    XCTAssertFalse(CGRectIsEmpty(resultsView.frame));
+    XCTAssertTrue(CGRectContainsRect(window.bounds, [resultsView convertRect:resultsView.bounds toView:window]));
+    for (NSNumber *style in @[@(UIUserInterfaceStyleLight), @(UIUserInterfaceStyleDark)]) {
+        window.overrideUserInterfaceStyle = style.integerValue;
+        [window layoutIfNeeded];
+        UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithBounds:window.bounds];
+        UIImage *snapshot = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+            [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
+        }];
+        XCTAttachment *attachment = [XCTAttachment attachmentWithImage:snapshot];
+        attachment.name = style.integerValue == UIUserInterfaceStyleLight ? @"Host code search - light" : @"Host code search - dark";
+        attachment.lifetime = XCTAttachmentLifetimeKeepAlways;
+        [self addAttachment:attachment];
+    }
+    window.hidden = YES;
+}
+
+- (void)testHostCodeSearchDoesNotChangeTestInputFields {
+    ViewController *panel = [[ViewController alloc] init];
+    UINavigationController *navigation = [[UINavigationController alloc] initWithRootViewController:panel];
+    [panel loadViewIfNeeded];
+    UITextField *singleLine = [panel valueForKey:@"singleLineField"];
+    UITextView *multiLine = [panel valueForKey:@"multiLineView"];
+    singleLine.text = @"原有單行文字";
+    multiLine.text = @"原有多行文字";
+    [panel openCodeSearch];
+    XCTAssertTrue([navigation.topViewController isKindOfClass:[CodeSearchViewController class]]);
+    CodeSearchViewController *search = (CodeSearchViewController *)navigation.topViewController;
+    [search loadViewIfNeeded];
+    UITextField *queryField = [search valueForKey:@"queryField"];
+    queryField.text = @"行";
+    [queryField sendActionsForControlEvents:UIControlEventEditingChanged];
+    XCTAssertEqualObjects(singleLine.text, @"原有單行文字");
+    XCTAssertEqualObjects(multiLine.text, @"原有多行文字");
 }
 
 - (void)testEngineRequiresBothReadableNonemptyDictionaries {

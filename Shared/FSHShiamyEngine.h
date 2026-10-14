@@ -13,6 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSArray<FSHCandidate *> *)prefixCandidatesForCode:(NSString *)code exactCount:(NSUInteger * _Nullable)exactCount;
 - (NSArray<FSHCandidate *> *)reverseLookupCandidatesForBaseValue:(NSString *)baseValue;
 - (nullable NSString *)shortestCodeForValue:(NSString *)value;
+- (NSArray<NSString *> *)allCodesForValue:(NSString *)value;
 - (nullable NSString *)spellForValue:(NSString *)value;
 - (NSArray<NSString *> *)spellsForValue:(NSString *)value;
 

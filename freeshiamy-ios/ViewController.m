@@ -1,6 +1,7 @@
 #import "ViewController.h"
 #import "FSHSettings.h"
 #import "SettingsViewController.h"
+#import "CodeSearchViewController.h"
 
 @interface ViewController () <UITextFieldDelegate>
 
@@ -58,12 +59,14 @@
     [stack addArrangedSubview:self.multiLineView];
 
     UIButton *openSettingsButton = [self actionButtonWithTitle:@"開啟 App 設定" selector:@selector(openSettings)];
+    UIButton *codeSearchButton = [self actionButtonWithTitle:@"查嘸蝦米字根" selector:@selector(openCodeSearch)];
     UIButton *openKeyboardSettingsButton = [self actionButtonWithTitle:@"開啟系統設定（鍵盤）" selector:@selector(openSystemSettings)];
     UIButton *showPickerButton = [self actionButtonWithTitle:@"顯示鍵盤選擇器" selector:@selector(showKeyboardPickerHint)];
     UIButton *focusSingleButton = [self actionButtonWithTitle:@"聚焦單行並顯示鍵盤" selector:@selector(focusSingleLine)];
     UIButton *clearButton = [self actionButtonWithTitle:@"清空兩個輸入框" selector:@selector(clearFields)];
     UIButton *refreshButton = [self actionButtonWithTitle:@"刷新狀態" selector:@selector(refreshStatus)];
 
+    [stack addArrangedSubview:codeSearchButton];
     [stack addArrangedSubview:openSettingsButton];
     [stack addArrangedSubview:openKeyboardSettingsButton];
     [stack addArrangedSubview:showPickerButton];
@@ -114,6 +117,10 @@
 - (void)openSettings {
     SettingsViewController *settings = [[SettingsViewController alloc] init];
     [self.navigationController pushViewController:settings animated:YES];
+}
+
+- (void)openCodeSearch {
+    [self.navigationController pushViewController:[[CodeSearchViewController alloc] init] animated:YES];
 }
 
 - (void)openSystemSettings {
