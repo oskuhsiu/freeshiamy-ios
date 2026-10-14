@@ -479,8 +479,6 @@
     window.frame = activeScene.coordinateSpace.bounds;
     window.rootViewController = host;
     [window makeKeyAndVisible];
-    [controller beginAppearanceTransition:YES animated:NO];
-    [controller endAppearanceTransition];
     XCTAssertEqual(controller.view.window, window);
 
     FSHShiamyEngine *engine = [[FSHShiamyEngine alloc] init];
@@ -547,8 +545,6 @@
     compactAttachment.name = @"Production keyboard host harness emoji - compact 320x390";
     compactAttachment.lifetime = XCTAttachmentLifetimeKeepAlways;
     [self addAttachment:compactAttachment];
-    [controller beginAppearanceTransition:NO animated:NO];
-    [controller endAppearanceTransition];
     window.hidden = YES;
     [oldKeyWindow makeKeyAndVisible];
 }
