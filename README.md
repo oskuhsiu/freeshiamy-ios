@@ -17,7 +17,7 @@ This branch starts from `master` at `2d449c3ce19b5faaa0704d4c67a69a4e75f0736f`. 
 | F11 | Open | Shift/Caps/symbol states share appearance | Distinct visual and accessibility states, sequence tests |
 | F12 | Open | Emoji/Settings require hidden long presses | Discoverable, named and accessible actions |
 | F13 | Open | Return substitutes dismissal/tab for host actions | Trait labels and host behavior matrix, with integration limits stated |
-| F14 | Open | Hidden More reserves trailing space | One/ten/eleven-candidate width tests |
+| F14 | Under test | Hidden More reserves trailing space | One/ten/eleven-candidate width tests |
 | F15 | Open | Candidate scroll stays at prior offset across queries | New-query reset and same-data relayout tests |
 | F16 | Open | Candidate buttons recreated on every layout | Stable view identities and bounded allocations |
 | F17 | Open | Settings setters each rebuild all keys | One rebuild for one combined settings snapshot |

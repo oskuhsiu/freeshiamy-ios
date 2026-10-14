@@ -408,6 +408,39 @@
     }
 }
 
+- (void)testHiddenMoreButtonGivesItsWidthBackToCandidates {
+    FSHCandidateBarView *bar = [[FSHCandidateBarView alloc] initWithFrame:CGRectMake(0.0, 0.0, 375.0, 37.5)];
+    CGFloat fullWidth = 0.0;
+    for (NSNumber *count in @[@1, @10, @11, @1]) {
+        NSMutableArray<FSHCandidate *> *candidates = [NSMutableArray array];
+        for (NSUInteger index = 0; index < count.unsignedIntegerValue; index++) {
+            [candidates addObject:[[FSHCandidate alloc] initWithCode:@"a" value:[NSString stringWithFormat:@"候%lu", (unsigned long)index]]];
+        }
+        [bar updateRawBuffer:@"a" candidates:candidates exactCount:1 inlineLimit:10 moreLimit:50 hintText:nil];
+        [bar layoutIfNeeded];
+        UIView *area = [bar valueForKey:@"candidateArea"];
+        UIScrollView *scroll = [bar valueForKey:@"scrollView"];
+        UIButton *more = [bar valueForKey:@"moreButton"];
+        NSLayoutConstraint *withMore = [bar valueForKey:@"scrollTrailingWithMore"];
+        NSLayoutConstraint *withoutMore = [bar valueForKey:@"scrollTrailingWithoutMore"];
+        XCTAssertNotEqual(withMore.active, withoutMore.active);
+        XCTAssertEqual(withMore.active, !more.hidden);
+        if (count.unsignedIntegerValue <= 10) {
+            XCTAssertTrue(more.hidden);
+            XCTAssertEqualWithAccuracy(CGRectGetMaxX(scroll.frame), CGRectGetWidth(area.bounds), 0.5);
+            if (fullWidth == 0.0) {
+                fullWidth = CGRectGetWidth(scroll.frame);
+            } else {
+                XCTAssertEqualWithAccuracy(CGRectGetWidth(scroll.frame), fullWidth, 0.5);
+            }
+        } else {
+            XCTAssertFalse(more.hidden);
+            XCTAssertEqualWithAccuracy(CGRectGetMaxX(scroll.frame), CGRectGetMinX(more.frame) - 4.0, 0.5);
+            XCTAssertEqualWithAccuracy(fullWidth - CGRectGetWidth(scroll.frame), 36.0, 0.5);
+        }
+    }
+}
+
 - (void)testProductionKeyboardViewsRenderInAttachedHostWindow {
     UIWindowScene *activeScene = nil;
     for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {

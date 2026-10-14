@@ -22,6 +22,8 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 
 @property (nonatomic, strong) NSLayoutConstraint *moreHeightConstraint;
 @property (nonatomic, strong) NSLayoutConstraint *moreContentHeightConstraint;
+@property (nonatomic, strong) NSLayoutConstraint *scrollTrailingWithMore;
+@property (nonatomic, strong) NSLayoutConstraint *scrollTrailingWithoutMore;
 
 @property (nonatomic, copy) NSArray<FSHCandidate *> *currentCandidates;
 @property (nonatomic, assign) NSUInteger currentExactCount;
@@ -116,6 +118,13 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 
         BOOL showMoreButton = (self.currentCandidates.count > inlineLimit);
         self.moreButton.hidden = !showMoreButton;
+        if (showMoreButton) {
+            self.scrollTrailingWithoutMore.active = NO;
+            self.scrollTrailingWithMore.active = YES;
+        } else {
+            self.scrollTrailingWithMore.active = NO;
+            self.scrollTrailingWithoutMore.active = YES;
+        }
         if (!showMoreButton) {
             [self setExpanded:NO animated:NO];
         }
@@ -214,7 +223,6 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
         [self.candidateArea.bottomAnchor constraintEqualToAnchor:self.topBar.bottomAnchor],
 
         [self.scrollView.leadingAnchor constraintEqualToAnchor:self.candidateArea.leadingAnchor],
-        [self.scrollView.trailingAnchor constraintEqualToAnchor:self.moreButton.leadingAnchor constant:-4.0],
         [self.scrollView.topAnchor constraintEqualToAnchor:self.candidateArea.topAnchor],
         [self.scrollView.bottomAnchor constraintEqualToAnchor:self.candidateArea.bottomAnchor],
 
@@ -238,6 +246,10 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
         [self.moreContainer.topAnchor constraintEqualToAnchor:self.topBar.bottomAnchor],
         [self.moreContainer.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
     ]];
+
+    self.scrollTrailingWithMore = [self.scrollView.trailingAnchor constraintEqualToAnchor:self.moreButton.leadingAnchor constant:-4.0];
+    self.scrollTrailingWithoutMore = [self.scrollView.trailingAnchor constraintEqualToAnchor:self.candidateArea.trailingAnchor];
+    self.scrollTrailingWithMore.active = YES;
 
     self.moreHeightConstraint = [self.moreContainer.heightAnchor constraintEqualToConstant:0.0];
     self.moreHeightConstraint.active = YES;
