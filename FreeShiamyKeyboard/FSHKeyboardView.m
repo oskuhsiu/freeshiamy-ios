@@ -369,6 +369,14 @@
     FSHKeyButton *button = [FSHKeyButton buttonWithType:UIButtonTypeSystem];
     button.keyCode = descriptor.keyCode;
     button.output = descriptor.output;
+    if (descriptor.output.length == 1) {
+        unichar character = [descriptor.output characterAtIndex:0];
+        if (self.mode == FSHKeyboardModeLetters && character >= 'a' && character <= 'z') {
+            button.accessibilityIdentifier = [@"key.letter." stringByAppendingString:descriptor.output];
+        } else if (character >= '0' && character <= '9') {
+            button.accessibilityIdentifier = [@"key.digit." stringByAppendingString:descriptor.output];
+        }
+    }
     button.isSpecial = descriptor.isSpecial;
     button.weight = descriptor.weight;
     button.titleLabel.font = [UIFont systemFontOfSize:18.0 weight:UIFontWeightRegular];
@@ -385,6 +393,7 @@
     }
 
     if (descriptor.keyCode == FSHKeyCodeGlobe) {
+        button.accessibilityIdentifier = @"key.globe";
         [button addTarget:self action:@selector(handleGlobeEvent:forEvent:) forControlEvents:UIControlEventAllTouchEvents];
         button.accessibilityLabel = @"切換鍵盤";
         __weak typeof(self) weakSelf = self;
@@ -397,6 +406,7 @@
     }
 
     if (descriptor.keyCode == FSHKeyCodeDelete) {
+        button.accessibilityIdentifier = @"key.delete";
         [button addTarget:self action:@selector(handleKeyDown:) forControlEvents:UIControlEventTouchDown];
         [button addTarget:self action:@selector(handleKeyUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel | UIControlEventTouchDragExit];
         button.accessibilityLabel = @"Delete";

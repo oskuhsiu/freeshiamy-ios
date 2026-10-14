@@ -41,6 +41,7 @@
     [stack addArrangedSubview:singleLabel];
 
     self.singleLineField = [[UITextField alloc] init];
+    self.singleLineField.accessibilityIdentifier = @"smoke.singleLine";
     self.singleLineField.borderStyle = UITextBorderStyleRoundedRect;
     self.singleLineField.delegate = self;
     self.singleLineField.returnKeyType = UIReturnKeyNext;
@@ -51,6 +52,7 @@
     [stack addArrangedSubview:multiLabel];
 
     self.multiLineView = [[UITextView alloc] init];
+    self.multiLineView.accessibilityIdentifier = @"smoke.multiLine";
     self.multiLineView.layer.borderColor = [UIColor systemGray4Color].CGColor;
     self.multiLineView.layer.borderWidth = 1.0;
     self.multiLineView.layer.cornerRadius = 8.0;
@@ -59,8 +61,10 @@
     [stack addArrangedSubview:self.multiLineView];
 
     UIButton *openSettingsButton = [self actionButtonWithTitle:@"開啟 App 設定" selector:@selector(openSettings)];
+    openSettingsButton.accessibilityIdentifier = @"smoke.appSettings";
     UIButton *codeSearchButton = [self actionButtonWithTitle:@"查嘸蝦米字根" selector:@selector(openCodeSearch)];
     UIButton *openKeyboardSettingsButton = [self actionButtonWithTitle:@"開啟系統設定（鍵盤）" selector:@selector(openSystemSettings)];
+    openKeyboardSettingsButton.accessibilityIdentifier = @"smoke.keyboardSettings";
     UIButton *showPickerButton = [self actionButtonWithTitle:@"顯示鍵盤選擇器" selector:@selector(showKeyboardPickerHint)];
     UIButton *focusSingleButton = [self actionButtonWithTitle:@"聚焦單行並顯示鍵盤" selector:@selector(focusSingleLine)];
     UIButton *clearButton = [self actionButtonWithTitle:@"清空兩個輸入框" selector:@selector(clearFields)];

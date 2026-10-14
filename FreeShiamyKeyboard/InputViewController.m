@@ -5,6 +5,7 @@
 #import "FSHCandidate.h"
 #import "FSHSettings.h"
 #import <math.h>
+#import <unistd.h>
 
 typedef NS_ENUM(NSInteger, FSHReverseState) {
     FSHReverseStateNone,
@@ -81,6 +82,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     [self.view addSubview:self.candidateBar];
 
     self.keyboardView = [[FSHKeyboardView alloc] initWithFrame:CGRectZero];
+    self.keyboardView.accessibilityIdentifier = @"smoke.keyboard";
     self.keyboardView.delegate = self;
     [self.view addSubview:self.keyboardView];
 
@@ -140,6 +142,10 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+#if DEBUG
+    NSLog(@"FreeShiamyKeyboard lifecycle bundle=%@ pid=%d hasFullAccess=%@",
+          NSBundle.mainBundle.bundleIdentifier, getpid(), self.hasFullAccess ? @"YES" : @"NO");
+#endif
 }
 
 - (void)viewDidLayoutSubviews {

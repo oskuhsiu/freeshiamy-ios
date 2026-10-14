@@ -34,6 +34,7 @@
 		F50000000000000000000027 /* FSHShiamyEngine.m in App */ = {isa = PBXBuildFile; fileRef = 9C4A0EE446BE0734E999F76A /* FSHShiamyEngine.m */; };
 		F50000000000000000000028 /* freeshiamy.cin in App */ = {isa = PBXBuildFile; fileRef = DD34322BD5D30BCF041C9642 /* freeshiamy.cin */; };
 		F50000000000000000000029 /* cht_spells.cin in App */ = {isa = PBXBuildFile; fileRef = 44626E78E737841AC99DC274 /* cht_spells.cin */; };
+		F60000000000000000000001 /* InstalledKeyboardUITests.m in Sources */ = {isa = PBXBuildFile; fileRef = F60000000000000000000011 /* InstalledKeyboardUITests.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -87,6 +88,8 @@
 		FEC13FEE63AAB7C6299B8FAF /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		F50000000000000000000011 /* KeyboardInputTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = KeyboardInputTests.m; sourceTree = "<group>"; };
 		F50000000000000000000013 /* KeyboardInputTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KeyboardInputTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F60000000000000000000011 /* InstalledKeyboardUITests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = InstalledKeyboardUITests.m; sourceTree = "<group>"; };
+		F60000000000000000000013 /* InstalledKeyboardUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InstalledKeyboardUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -131,6 +134,7 @@
 			files = ();
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F60000000000000000000014 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -161,6 +165,7 @@
 				1868F27F2EFA53C000377D4D /* freeshiamy-ios.app */,
 				ECDD61228BB953BCC36A76D1 /* FreeShiamyKeyboard.appex */,
 				F50000000000000000000013 /* KeyboardInputTests.xctest */,
+				F60000000000000000000013 /* InstalledKeyboardUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -209,7 +214,7 @@
 		};
 		F50000000000000000000015 /* Tests */ = {
 			isa = PBXGroup;
-			children = ( F50000000000000000000011 /* KeyboardInputTests.m */, );
+			children = ( F50000000000000000000011 /* KeyboardInputTests.m */, F60000000000000000000011 /* InstalledKeyboardUITests.m */, );
 			path = Tests;
 			sourceTree = "<group>";
 		};
@@ -274,6 +279,17 @@
 			productReference = F50000000000000000000013 /* KeyboardInputTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		F60000000000000000000016 /* InstalledKeyboardUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F60000000000000000000019 /* Build configuration list for InstalledKeyboardUITests */;
+			buildPhases = ( F60000000000000000000017 /* Sources */, F60000000000000000000014 /* Frameworks */ );
+			buildRules = ();
+			dependencies = ( F60000000000000000000018 /* App dependency */, );
+			name = InstalledKeyboardUITests;
+			productName = InstalledKeyboardUITests;
+			productReference = F60000000000000000000013 /* InstalledKeyboardUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -290,6 +306,7 @@
 						CreatedOnToolsVersion = 26.2;
 					};
 				F50000000000000000000016 = { CreatedOnToolsVersion = 26.2; TestTargetID = 1868F27E2EFA53BF00377D4D; };
+				F60000000000000000000016 = { CreatedOnToolsVersion = 26.2; TestTargetID = 1868F27E2EFA53BF00377D4D; };
 				};
 			};
 			buildConfigurationList = 1868F27A2EFA53BF00377D4D /* Build configuration list for PBXProject "freeshiamy-ios" */;
@@ -309,6 +326,7 @@
 				1868F27E2EFA53BF00377D4D /* freeshiamy-ios */,
 				2EFFC18CE2BAF10D8A94B621 /* FreeShiamyKeyboard */,
 				F50000000000000000000016 /* KeyboardInputTests */,
+				F60000000000000000000016 /* InstalledKeyboardUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -382,6 +400,11 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F60000000000000000000017 /* Sources */ = {
+			isa = PBXSourcesBuildPhase; buildActionMask = 2147483647;
+			files = ( F60000000000000000000001 /* InstalledKeyboardUITests.m in Sources */, );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -394,6 +417,7 @@
 			isa = PBXTargetDependency;
 			target = 1868F27E2EFA53BF00377D4D /* freeshiamy-ios */;
 		};
+		F60000000000000000000018 /* App dependency */ = { isa = PBXTargetDependency; target = 1868F27E2EFA53BF00377D4D /* freeshiamy-ios */; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -651,6 +675,34 @@
 			};
 			name = Release;
 		};
+		F60000000000000000000020 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				PRODUCT_BUNDLE_IDENTIFIER = osku.me.freeshiamyios.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "freeshiamy-ios";
+			};
+			name = Debug;
+		};
+		F60000000000000000000021 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				PRODUCT_BUNDLE_IDENTIFIER = osku.me.freeshiamyios.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "freeshiamy-ios";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -686,6 +738,12 @@
 			buildConfigurations = ( F50000000000000000000020 /* Debug */, F50000000000000000000021 /* Release */, );
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
+		};
+		F60000000000000000000019 /* Build configuration list for InstalledKeyboardUITests */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = ( F60000000000000000000020 /* Debug */, F60000000000000000000021 /* Release */, );
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};

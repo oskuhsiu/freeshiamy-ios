@@ -193,6 +193,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     [self addSubview:self.topBar];
 
     self.rawButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.rawButton.accessibilityIdentifier = @"candidate.raw";
     self.rawButton.translatesAutoresizingMaskIntoConstraints = NO;
     self.rawButton.titleLabel.font = [self candidateFont];
     self.rawButton.titleLabel.adjustsFontSizeToFitWidth = YES;
@@ -231,6 +232,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     [self.candidateArea addSubview:self.moreButton];
 
     self.hintLabel = [[UILabel alloc] init];
+    self.hintLabel.accessibilityIdentifier = @"candidate.status";
     self.hintLabel.translatesAutoresizingMaskIntoConstraints = NO;
     self.hintLabel.font = [self candidateFont];
     self.hintLabel.adjustsFontSizeToFitWidth = YES;
@@ -341,6 +343,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
             button = [self candidateButtonForIndex:index candidate:candidate exactCount:self.currentExactCount];
             [self.inlineButtonPool addObject:button];
         }
+        button.accessibilityIdentifier = [NSString stringWithFormat:@"candidate.inline.%lu", (unsigned long)index];
         if (button.superview != self.candidateStack) {
             [self.candidateStack addArrangedSubview:button];
         }
@@ -391,6 +394,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
             button = [self candidateButtonForIndex:index candidate:candidate exactCount:self.currentExactCount];
             [self.moreButtonPool addObject:button];
         }
+        button.accessibilityIdentifier = [NSString stringWithFormat:@"candidate.expanded.%lu", (unsigned long)index];
         button.frame = CGRectMake(x, y, buttonWidth, kFSHCandidateButtonHeight);
         if (button.superview != self.moreContentView) {
             [self.moreContentView addSubview:button];

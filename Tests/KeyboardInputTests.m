@@ -831,6 +831,37 @@ static id FSHFixtureDefaults;
     }
 }
 
+- (void)testStableIdentifiersForInstalledKeyboardSmoke {
+    XCTAssertEqualObjects(self.keyboard.accessibilityIdentifier, @"smoke.keyboard");
+    self.keyboard.mode = FSHKeyboardModeLetters;
+    self.keyboard.showsGlobe = YES;
+    XCTAssertEqualObjects([self keyWithOutput:@"c" inKeyboard:self.keyboard].accessibilityIdentifier, @"key.letter.c");
+    XCTAssertEqualObjects([self keyWithOutput:@"i" inKeyboard:self.keyboard].accessibilityIdentifier, @"key.letter.i");
+    XCTAssertEqualObjects([self keyWithOutput:@"1" inKeyboard:self.keyboard].accessibilityIdentifier, @"key.digit.1");
+    XCTAssertEqualObjects([[self.keyboard valueForKey:@"deleteButton"] accessibilityIdentifier], @"key.delete");
+    FSHKeyButton *globe = nil;
+    for (NSArray<FSHKeyButton *> *row in [self.keyboard valueForKey:@"rowButtons"]) {
+        for (FSHKeyButton *button in row) {
+            if (button.keyCode == FSHKeyCodeGlobe) {
+                globe = button;
+            }
+        }
+    }
+    XCTAssertEqualObjects(globe.accessibilityIdentifier, @"key.globe");
+
+    FSHCandidateBarView *bar = [[FSHCandidateBarView alloc] initWithFrame:CGRectMake(0, 0, 320, 37.5)];
+    [bar updateRawBuffer:@"ci" candidates:[self candidatesWithCount:2 code:@"ci"]
+             exactCount:2 inlineLimit:10 moreLimit:50 hintText:nil];
+    XCTAssertEqualObjects([[bar valueForKey:@"rawButton"] accessibilityIdentifier], @"candidate.raw");
+    UIStackView *stack = [bar valueForKey:@"candidateStack"];
+    XCTAssertEqualObjects(stack.arrangedSubviews.firstObject.accessibilityIdentifier, @"candidate.inline.0");
+
+    ViewController *host = [[ViewController alloc] init];
+    [host loadViewIfNeeded];
+    XCTAssertEqualObjects([[host valueForKey:@"singleLineField"] accessibilityIdentifier], @"smoke.singleLine");
+    XCTAssertEqualObjects([[host valueForKey:@"multiLineView"] accessibilityIdentifier], @"smoke.multiLine");
+}
+
 - (void)testShiftStatesHaveDistinctLabelsAndKeepLetterGeometry {
     FSHKeyboardView *keyboard = [[FSHKeyboardView alloc] initWithFrame:CGRectMake(0, 0, 375, 216)];
     for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious),
@@ -2679,7 +2710,22 @@ static id FSHFixtureDefaults;
     [navigation setOverrideTraitCollection:largeText forChildViewController:search];
     window.frame = CGRectMake(0.0, 0.0, 320.0, 390.0);
     XCTAssertTrue([queryField becomeFirstResponder]);
-    [self waitForSeconds:0.5];
+    NSPredicate *compactReadyPredicate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        [window layoutIfNeeded];
+        CGRect query = [queryField convertRect:queryField.bounds toView:scrollView];
+        CGFloat top = scrollView.contentOffset.y;
+        CGFloat bottom = top + CGRectGetHeight(scrollView.bounds);
+        return search.view.window == window && queryField.isFirstResponder &&
+               fabs(CGRectGetWidth(window.bounds) - 320.0) < 0.5 &&
+               fabs(CGRectGetHeight(window.bounds) - 390.0) < 0.5 &&
+               [search.traitCollection.preferredContentSizeCategory isEqualToString:UIContentSizeCategoryAccessibilityMedium] &&
+               !CGRectIsEmpty(queryField.bounds) && !CGRectIsEmpty(scrollView.bounds) &&
+               CGRectGetMinY(query) >= top - 1.0 && CGRectGetMaxY(query) <= bottom + 1.0;
+    }];
+    XCTNSPredicateExpectation *compactReady = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:compactReadyPredicate object:search];
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[compactReady] timeout:10.0], XCTWaiterResultCompleted,
+                   @"Compact scene must attach, adopt its trait, and show the focused field before capture");
     [window layoutIfNeeded];
     CGRect queryInScroll = [queryField convertRect:queryField.bounds toView:scrollView];
     CGFloat visibleTop = scrollView.contentOffset.y;
