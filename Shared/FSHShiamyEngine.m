@@ -147,12 +147,22 @@
                        spellEntries:(NSArray<FSHCandidate *> *)spellEntries {
     NSMutableDictionary<NSString *, NSMutableArray<FSHCandidate *> *> *firstCharIndex = [NSMutableDictionary dictionary];
     NSMutableDictionary<NSString *, NSString *> *shortestCodeByValue = [NSMutableDictionary dictionary];
+    NSMutableDictionary<NSString *, NSMutableSet<NSString *> *> *seenCodesByValue = [NSMutableDictionary dictionary];
 
     for (FSHCandidate *candidate in cinEntries) {
         NSString *normalizedCode = [self normalizedCode:candidate.code];
         if (normalizedCode.length == 0) {
             continue;
         }
+        NSMutableSet<NSString *> *seenCodes = seenCodesByValue[candidate.value];
+        if (!seenCodes) {
+            seenCodes = [NSMutableSet set];
+            seenCodesByValue[candidate.value] = seenCodes;
+        }
+        if ([seenCodes containsObject:normalizedCode]) {
+            continue;
+        }
+        [seenCodes addObject:normalizedCode];
         if (!shortestCodeByValue[candidate.value]) {
             shortestCodeByValue[candidate.value] = normalizedCode;
         }

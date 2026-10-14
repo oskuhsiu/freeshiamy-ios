@@ -553,6 +553,34 @@
     XCTAssertEqualObjects([walking[3] value], @"苀");
 }
 
+- (void)testExactDuplicateCodesAreRemovedWithoutDroppingAlternativeCodes {
+    FSHShiamyEngine *engine = [[FSHShiamyEngine alloc] init];
+    NSError *error = nil;
+    XCTAssertTrue([engine loadFromBundle:[NSBundle bundleForClass:[self class]] error:&error]);
+    XCTAssertNil(error);
+    NSDictionary<NSString *, NSArray<FSHCandidate *> *> *buckets = [engine valueForKey:@"firstCharIndex"];
+    NSUInteger indexedEntries = 0;
+    for (NSArray<FSHCandidate *> *bucket in buckets.allValues) {
+        indexedEntries += bucket.count;
+    }
+    XCTAssertEqual(indexedEntries, (NSUInteger)26286); // 26,288 corpus rows, two exact duplicates.
+
+    for (NSString *code in @[@",", @"."]) {
+        NSUInteger exactCount = 0;
+        NSArray<FSHCandidate *> *matches = [engine prefixCandidatesForCode:code exactCount:&exactCount];
+        XCTAssertEqual(exactCount, (NSUInteger)1);
+        XCTAssertEqual(matches.count, (NSUInteger)1);
+    }
+    for (NSString *code in @[@"ci", @"cj", @"cjv"]) {
+        NSArray<FSHCandidate *> *matches = [engine prefixCandidatesForCode:code exactCount:NULL];
+        BOOL found = NO;
+        for (FSHCandidate *candidate in matches) {
+            found |= [candidate.code isEqualToString:code] && [candidate.value isEqualToString:@"中"];
+        }
+        XCTAssertTrue(found, @"Missing alternate code %@", code);
+    }
+}
+
 - (void)testEngineRequiresBothReadableNonemptyDictionaries {
     NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID UUID].UUIDString];
     NSError *error = nil;
