@@ -34,6 +34,31 @@ xcodebuild -list -project freeshiamy-ios.xcodeproj > "$ARTIFACTS/project-list.lo
 xcodebuild -help > "$ARTIFACTS/xcodebuild-help.log" 2>&1
 xcrun simctl help ui > "$ARTIFACTS/simctl-ui-help.log" 2>&1 || true
 xcrun simctl list -j devicetypes > "$ARTIFACTS/simctl-device-types.json" 2>&1
+DEVICE_TYPE="${FSH_SIM_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPhone-16}"
+case "$DEVICE_TYPE" in
+    com.apple.CoreSimulator.SimDeviceType.iPhone-16)
+        DEVICE_LABEL=iphone-16
+        DEVICE_FAMILY=iPhone
+        ;;
+    com.apple.CoreSimulator.SimDeviceType.iPad-Air-11-inch-M3)
+        DEVICE_LABEL=ipad-air-11-m3
+        DEVICE_FAMILY=iPad
+        ;;
+    *)
+        echo "Unsupported simulator device type: $DEVICE_TYPE" | tee "$ARTIFACTS/device-selection.log"
+        exit 1
+        ;;
+esac
+python3 - "$ARTIFACTS/simctl-device-types.json" "$DEVICE_TYPE" "$DEVICE_FAMILY" \
+    > "$ARTIFACTS/device-selection.log" 2>&1 <<'PY'
+import json, sys
+device_types, identifier, family = sys.argv[1:]
+matches = [device for device in json.load(open(device_types))["devicetypes"]
+           if device.get("identifier") == identifier and device.get("productFamily") == family]
+if len(matches) != 1:
+    sys.exit(f"Required {family} device type {identifier} not uniquely available in simctl device catalog")
+print(f"Selected device type: {matches[0]['name']} ({identifier}); product family: {family}")
+PY
 if ! grep -q -- '-testLanguage' "$ARTIFACTS/xcodebuild-help.log" || \
    ! grep -q -- '-testRegion' "$ARTIFACTS/xcodebuild-help.log" || \
    ! grep -q -- '-only-testing:TEST-IDENTIFIER' "$ARTIFACTS/xcodebuild-help.log" || \
@@ -54,8 +79,9 @@ else:
     sys.exit("iOS 26.2 simulator runtime is unavailable")
 ')
 
-DEVICE_ID=$(xcrun simctl create "freeshiamy-ci-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}" \
-    com.apple.CoreSimulator.SimDeviceType.iPhone-16 "$RUNTIME")
+DEVICE_ID=$(xcrun simctl create "freeshiamy-ci-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${DEVICE_LABEL}" \
+    "$DEVICE_TYPE" "$RUNTIME")
+echo "Job-owned simulator: $DEVICE_ID; type: $DEVICE_TYPE; runtime: $RUNTIME" | tee -a "$ARTIFACTS/device-selection.log"
 cleanup() {
     xcrun simctl shutdown "$DEVICE_ID" >/dev/null 2>&1 || true
     xcrun simctl delete "$DEVICE_ID" >/dev/null 2>&1 || true
