@@ -233,7 +233,7 @@
     }
     [rows addObject:numbers];
 
-    NSArray<NSString *> *row1 = shifted ? @[ @"_", @"\\", @"|", @"~", @"<", @">", @"€", @"£", @"¥", @"•" ]
+    NSArray<NSString *> *row1 = shifted ? @[ @"_", @"\\", @"|", @"~", @"<", @">", @"€", @"£", @"¥", @"`" ]
                                      : @[ @"-", @"/", @":", @";", @"(", @")", @"$", @"&", @"@", @"'" ];
     NSMutableArray<FSHKeyDescriptor *> *symbols1 = [NSMutableArray array];
     for (NSString *symbol in row1) {
@@ -241,7 +241,7 @@
     }
     [rows addObject:symbols1];
 
-    NSArray<NSString *> *row2 = shifted ? @[ @"±", @"×", @"÷", @"…", @"=", @"+", @"•", @"°", @"^" ]
+    NSArray<NSString *> *row2 = shifted ? @[ @"±", @"×", @"÷", @"…", @"=", @"!", @"•", @"°", @"?" ]
                                      : @[ @"[", @"]", @"{", @"}", @"#", @"%", @"^", @"*", @"+" ];
     NSMutableArray<FSHKeyDescriptor *> *symbols2 = [NSMutableArray array];
     [symbols2 addObject:[self key:shifted ? @"123" : @"#+=" output:nil code:FSHKeyCodeShift weight:1.4 special:YES]];
@@ -260,7 +260,7 @@
     }
     [bottom addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:4.0 special:YES]];
     if (shifted) {
-        [bottom addObject:[self key:@"…" output:@"…" code:0 weight:0.75 special:NO]];
+        [bottom addObject:[self key:@"\"" output:@"\"" code:0 weight:0.75 special:NO]];
     } else {
         [bottom addObject:[self key:@"," output:@"," code:0 weight:0.75 special:NO]];
     }
@@ -297,9 +297,10 @@
     if (self.showsGlobe) {
         [bottom addObject:[self key:@"🌐" output:nil code:FSHKeyCodeGlobe weight:1.0 special:YES]];
     }
-    [bottom addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:4.0 special:YES]];
+    [bottom addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:3.0 special:YES]];
     [bottom addObject:[self key:@"," output:@"," code:0 weight:0.75 special:NO]];
     [bottom addObject:[self key:@"." output:@"." code:0 weight:0.75 special:NO]];
+    [bottom addObject:[self key:@"⌫" output:nil code:FSHKeyCodeDelete weight:1.2 special:YES]];
     CGFloat enterWeight = self.showsGlobe ? 1.0 : 2.0;
     [bottom addObject:[self key:@"Enter" output:nil code:FSHKeyCodeEnter weight:enterWeight special:YES]];
     [rows addObject:bottom];

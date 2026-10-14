@@ -269,6 +269,222 @@
     }
 }
 
+- (void)testEmojiPageDeleteHandlesGraphemesAndStopsHeldPress {
+    for (NSNumber *globe in @[@NO, @YES]) {
+        self.keyboard.showsGlobe = globe.boolValue;
+        self.keyboard.mode = FSHKeyboardModeEmoji;
+        FSHKeyButton *emojiDelete = [self.keyboard valueForKey:@"deleteButton"];
+        XCTAssertNotNil(emojiDelete);
+        XCTAssertEqual(self.keyboard.mode, FSHKeyboardModeEmoji);
+
+        [self.proxy.text setString:@"a👨‍👩‍👧‍👦"];
+        [emojiDelete sendActionsForControlEvents:UIControlEventTouchDown];
+        [emojiDelete sendActionsForControlEvents:UIControlEventTouchUpInside];
+        XCTAssertEqualObjects(self.proxy.text, @"a");
+        XCTAssertEqual(self.keyboard.mode, FSHKeyboardModeEmoji);
+
+        [self.proxy.text setString:@"abc"];
+        XCTAssertTrue([emojiDelete accessibilityActivate]);
+        XCTAssertEqualObjects(self.proxy.text, @"ab");
+
+        [self.proxy.text setString:@"abcdef"];
+        [emojiDelete sendActionsForControlEvents:UIControlEventTouchDown];
+        [self waitForSeconds:0.55];
+        XCTAssertLessThan(self.proxy.text.length, (NSUInteger)5);
+        [emojiDelete sendActionsForControlEvents:UIControlEventTouchCancel];
+        NSString *afterCancel = [self.proxy.text copy];
+        [self waitForSeconds:0.25];
+        XCTAssertEqualObjects(self.proxy.text, afterCancel);
+
+        for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious),
+                                  @(FSHKeyboardLayoutOriginal), @(FSHKeyboardLayoutOriginalNoNumber)]) {
+            self.keyboard.layout = layout.integerValue;
+            for (NSNumber *width in @[@320.0, @375.0, @393.0, @768.0]) {
+                self.keyboard.frame = CGRectMake(0.0, 0.0, width.doubleValue, 216.0);
+                [self.keyboard layoutIfNeeded];
+                FSHKeyButton *laidOutDelete = [self.keyboard valueForKey:@"deleteButton"];
+                XCTAssertNotNil(laidOutDelete);
+                XCTAssertGreaterThanOrEqual(laidOutDelete.frame.size.width, 25.0, @"Layout %@ width %@ globe %@",
+                                            layout, width, globe);
+                XCTAssertGreaterThanOrEqual(CGRectGetMinX(laidOutDelete.frame), -0.5);
+                XCTAssertLessThanOrEqual(CGRectGetMaxX(laidOutDelete.frame), width.doubleValue + 0.5);
+            }
+        }
+    }
+}
+
+- (void)testBothSymbolPagesRetainUniqueSymbolsAndAddMissingPunctuation {
+    NSMutableSet<NSString *> *allOutputs = [NSMutableSet set];
+    for (NSNumber *mode in @[@(FSHKeyboardModeSymbols), @(FSHKeyboardModeSymbolsShift)]) {
+        self.keyboard.mode = mode.integerValue;
+        NSArray<NSArray<FSHKeyButton *> *> *rows = [self.keyboard valueForKey:@"rowButtons"];
+        for (NSArray<FSHKeyButton *> *row in rows) {
+            for (FSHKeyButton *button in row) {
+                if (button.output.length > 0) {
+                    [allOutputs addObject:button.output];
+                }
+            }
+        }
+    }
+    NSArray<NSString *> *originalSymbols = @[@"0", @"1", @"2", @"3", @"4", @"5", @"6", @"7", @"8", @"9",
+        @"-", @"/", @":", @";", @"(", @")", @"$", @"&", @"@", @"'", @"[", @"]", @"{", @"}", @"#", @"%", @"^", @"*", @"+", @",", @".",
+        @"_", @"\\", @"|", @"~", @"<", @">", @"€", @"£", @"¥", @"•", @"±", @"×", @"÷", @"…", @"=", @"°"];
+    for (NSString *symbol in originalSymbols) {
+        XCTAssertTrue([allOutputs containsObject:symbol], @"Lost symbol %@", symbol);
+    }
+    for (NSString *symbol in @[@"!", @"?", @"\"", @"`"]) {
+        XCTAssertTrue([allOutputs containsObject:symbol], @"Missing direct symbol %@", symbol);
+    }
+
+    self.keyboard.mode = FSHKeyboardModeSymbolsShift;
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+    NSMutableString *expected = [NSMutableString string];
+    for (NSString *symbol in @[@"!", @"?", @"\"", @"`"]) {
+        FSHKeyButton *key = nil;
+        for (NSArray<FSHKeyButton *> *row in [self.keyboard valueForKey:@"rowButtons"]) {
+            for (FSHKeyButton *button in row) {
+                if ([button.output isEqualToString:symbol]) {
+                    key = button;
+                }
+            }
+        }
+        XCTAssertNotNil(key);
+        [key sendActionsForControlEvents:UIControlEventTouchUpInside];
+        [expected appendString:symbol];
+        XCTAssertEqualObjects(self.proxy.text, expected);
+    }
+    [[self rawBuffer] setString:@"ab"];
+    NSString *hostBeforeComposition = [self.proxy.text copy];
+    NSMutableString *expectedRaw = [@"ab" mutableCopy];
+    for (NSString *symbol in @[@"!", @"?", @"\"", @"`"]) {
+        FSHKeyButton *key = nil;
+        for (NSArray<FSHKeyButton *> *row in [self.keyboard valueForKey:@"rowButtons"]) {
+            for (FSHKeyButton *button in row) {
+                if ([button.output isEqualToString:symbol]) {
+                    key = button;
+                }
+            }
+        }
+        XCTAssertNotNil(key);
+        [key sendActionsForControlEvents:UIControlEventTouchUpInside];
+        [expectedRaw appendString:symbol];
+        XCTAssertEqualObjects([self rawBuffer], expectedRaw);
+        XCTAssertEqualObjects(self.proxy.text, hostBeforeComposition);
+    }
+}
+
+- (void)testProductionKeyboardViewsRenderInAttachedHostWindow {
+    UIWindowScene *activeScene = nil;
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if ([scene isKindOfClass:[UIWindowScene class]] && scene.activationState == UISceneActivationStateForegroundActive) {
+            activeScene = (UIWindowScene *)scene;
+            break;
+        }
+    }
+    XCTAssertNotNil(activeScene);
+    if (!activeScene) {
+        return;
+    }
+    UIWindow *oldKeyWindow = nil;
+    for (UIWindow *candidate in activeScene.windows) {
+        if (candidate.isKeyWindow) {
+            oldKeyWindow = candidate;
+            break;
+        }
+    }
+
+    FSHTestInputController *controller = [[FSHTestInputController alloc] init];
+    controller.fakeProxy = [[FSHFakeDocumentProxy alloc] init];
+    [controller loadViewIfNeeded];
+    UIViewController *host = [[UIViewController alloc] init];
+    host.view.backgroundColor = [UIColor systemBackgroundColor];
+    [host addChildViewController:controller];
+    controller.view.translatesAutoresizingMaskIntoConstraints = NO;
+    [host.view addSubview:controller.view];
+    [controller didMoveToParentViewController:host];
+    [NSLayoutConstraint activateConstraints:@[
+        [controller.view.leadingAnchor constraintEqualToAnchor:host.view.leadingAnchor],
+        [controller.view.trailingAnchor constraintEqualToAnchor:host.view.trailingAnchor],
+        [controller.view.bottomAnchor constraintEqualToAnchor:host.view.safeAreaLayoutGuide.bottomAnchor],
+    ]];
+    UIWindow *window = [[UIWindow alloc] initWithWindowScene:activeScene];
+    window.frame = activeScene.coordinateSpace.bounds;
+    window.rootViewController = host;
+    [window makeKeyAndVisible];
+    [controller beginAppearanceTransition:YES animated:NO];
+    [controller endAppearanceTransition];
+    XCTAssertEqual(controller.view.window, window);
+
+    FSHShiamyEngine *engine = [[FSHShiamyEngine alloc] init];
+    NSError *error = nil;
+    XCTAssertTrue([engine loadFromBundle:[NSBundle mainBundle] error:&error], @"%@", error);
+    [controller setValue:engine forKey:@"engine"];
+    [controller setValue:@1 forKey:@"engineLoadState"];
+    NSMutableString *raw = [controller valueForKey:@"rawBuffer"];
+    [raw setString:@"ci"];
+    [controller refreshCandidatesAndUI];
+    FSHKeyboardView *keyboard = [controller valueForKey:@"keyboardView"];
+    keyboard.layout = FSHKeyboardLayoutStandard;
+    keyboard.showNumberRow = YES;
+    keyboard.showsGlobe = NO;
+    FSHCandidateBarView *bar = [controller valueForKey:@"candidateBar"];
+    UIStackView *candidateStack = [bar valueForKey:@"candidateStack"];
+    UIButton *firstCandidate = (UIButton *)candidateStack.arrangedSubviews.firstObject;
+    XCTAssertEqualObjects([firstCandidate titleForState:UIControlStateNormal], @"中");
+
+    NSArray<NSNumber *> *modes = @[@(FSHKeyboardModeLetters), @(FSHKeyboardModeSymbolsShift), @(FSHKeyboardModeEmoji)];
+    for (NSNumber *mode in modes) {
+        keyboard.mode = mode.integerValue;
+        for (NSNumber *style in @[@(UIUserInterfaceStyleLight), @(UIUserInterfaceStyleDark)]) {
+            window.overrideUserInterfaceStyle = style.integerValue;
+            [window layoutIfNeeded];
+            XCTAssertGreaterThan(keyboard.bounds.size.height, 0.0);
+            XCTAssertEqual(keyboard.window, window);
+            XCTAssertEqualWithAccuracy(CGRectGetMaxY(controller.view.frame),
+                                       CGRectGetHeight(host.view.bounds) - host.view.safeAreaInsets.bottom, 1.0);
+            NSArray<NSArray<FSHKeyButton *> *> *rows = [keyboard valueForKey:@"rowButtons"];
+            for (NSArray<FSHKeyButton *> *row in rows) {
+                for (FSHKeyButton *button in row) {
+                    XCTAssertFalse(CGRectIsEmpty(button.frame));
+                    XCTAssertGreaterThanOrEqual(CGRectGetMinX(button.frame), -0.5);
+                    XCTAssertLessThanOrEqual(CGRectGetMaxX(button.frame), CGRectGetWidth(keyboard.bounds) + 0.5);
+                    XCTAssertLessThanOrEqual(CGRectGetMaxY(button.frame), CGRectGetHeight(keyboard.bounds) + 0.5);
+                }
+            }
+            UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithBounds:window.bounds];
+            __block BOOL rendered = NO;
+            UIImage *snapshot = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+                rendered = [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
+            }];
+            XCTAssertTrue(rendered);
+            XCTAttachment *attachment = [XCTAttachment attachmentWithImage:snapshot];
+            attachment.name = [NSString stringWithFormat:@"Production keyboard host harness mode %ld - %@",
+                               (long)mode.integerValue, style.integerValue == UIUserInterfaceStyleDark ? @"dark" : @"light"];
+            attachment.lifetime = XCTAttachmentLifetimeKeepAlways;
+            [self addAttachment:attachment];
+        }
+    }
+    window.frame = CGRectMake(0.0, 0.0, 320.0, 390.0);
+    keyboard.mode = FSHKeyboardModeEmoji;
+    window.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
+    [window layoutIfNeeded];
+    XCTAssertEqualWithAccuracy(CGRectGetWidth(keyboard.bounds), 320.0, 1.0);
+    UIGraphicsImageRenderer *compactRenderer = [[UIGraphicsImageRenderer alloc] initWithBounds:window.bounds];
+    __block BOOL compactRendered = NO;
+    UIImage *compactSnapshot = [compactRenderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        compactRendered = [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
+    }];
+    XCTAssertTrue(compactRendered);
+    XCTAttachment *compactAttachment = [XCTAttachment attachmentWithImage:compactSnapshot];
+    compactAttachment.name = @"Production keyboard host harness emoji - compact 320x390";
+    compactAttachment.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:compactAttachment];
+    [controller beginAppearanceTransition:NO animated:NO];
+    [controller endAppearanceTransition];
+    window.hidden = YES;
+    [oldKeyWindow makeKeyAndVisible];
+}
+
 - (void)testReverseLookupAndHintRecognizeOneComposedCharacter {
     FSHTestEngine *engine = [[FSHTestEngine alloc] init];
     [self.controller setValue:engine forKey:@"engine"];
