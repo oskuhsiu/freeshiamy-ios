@@ -78,7 +78,6 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 
     self.keyboardView = [[FSHKeyboardView alloc] initWithFrame:CGRectZero];
     self.keyboardView.delegate = self;
-    self.keyboardView.showsGlobe = NO;
     [self.view addSubview:self.keyboardView];
 
     self.candidateBar.translatesAutoresizingMaskIntoConstraints = NO;
@@ -111,6 +110,18 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self refreshInputModeSwitchKey];
+}
+
+- (void)refreshInputModeSwitchKey {
+    BOOL shouldShow = self.needsInputModeSwitchKey;
+    if (self.keyboardView.showsGlobe != shouldShow) {
+        self.keyboardView.showsGlobe = shouldShow;
+    }
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -324,6 +335,10 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     if (output.length > 0) {
         [self handleCharacter:output];
     }
+}
+
+- (void)keyboardView:(FSHKeyboardView *)keyboardView didReceiveInputModeEvent:(UIEvent *)event fromView:(UIView *)view {
+    [self handleInputModeListFromView:view withEvent:event];
 }
 
 - (void)handleLiteralKeyCode:(NSInteger)keyCode output:(NSString *)output {
@@ -875,7 +890,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     }
     [self.keyboardView applyLayout:effectiveLayout
                     showNumberRow:showNumberRow
-                       showsGlobe:self.keyboardView.showsGlobe
+                       showsGlobe:self.needsInputModeSwitchKey
                           labelTop:labelTop
                          leftShift:leftShift];
 

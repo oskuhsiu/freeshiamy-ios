@@ -8,7 +8,7 @@ This branch starts from `master` at `2d449c3ce19b5faaa0704d4c67a69a4e75f0736f`. 
 | F02 | Under test | Raw deletion and reverse checks use UTF-16 units | Emoji, combining mark, ZWJ and supplementary-character tests |
 | F03 | Under test | Repeat timer has no disappearance teardown | Cancel, drag exit, rebuild, focus change, disappearance tests |
 | F04 | Under test | Sensitive guard only covers ordinary key press | Secure-field delete, raw and candidate paths cannot write |
-| F05 | Open | Globe is hard-disabled in `InputViewController.m` | System switch key and picker work in all modes/layouts |
+| F05 | Under test | Globe is hard-disabled in `InputViewController.m` | System switch key and picker work in all modes/layouts |
 | F06 | Under test | Emoji rows omit Delete | Delete works without leaving emoji mode |
 | F07 | Under test | Symbol rows omit !, ?, double quote, backtick | All four directly reachable without losing existing symbols |
 | F08 | Open | QAZ/Del setting shifts Q/A but not Z and narrows Delete | Q/A/Z/Delete geometry checked at four widths |

@@ -33,6 +33,8 @@ static const NSInteger FSHKeyCodeEnter = 10;
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didPressKeyCode:(NSInteger)keyCode output:(nullable NSString *)output;
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didBeginPressKeyCode:(NSInteger)keyCode output:(nullable NSString *)output;
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didEndPressKeyCode:(NSInteger)keyCode output:(nullable NSString *)output;
+@optional
+- (void)keyboardView:(FSHKeyboardView *)keyboardView didReceiveInputModeEvent:(nullable UIEvent *)event fromView:(UIView *)view;
 @end
 
 @interface FSHKeyboardView : UIView

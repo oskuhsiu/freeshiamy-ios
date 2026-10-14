@@ -229,6 +229,9 @@
     if (isOriginal) {
         [row4 addObject:[self key:@"⌄" output:nil code:FSHKeyCodeCancel weight:1.0 special:YES]];
         [row4 addObject:[self key:@"123" output:nil code:FSHKeyCodeModeChange weight:1.0 special:YES]];
+        if (self.showsGlobe) {
+            [row4 addObject:[self key:@"🌐" output:nil code:FSHKeyCodeGlobe weight:1.0 special:YES]];
+        }
         [row4 addObject:[self key:@"'" output:@"'" code:0 weight:1.0 special:NO]];
         [row4 addObject:[self key:@"Space" output:@" " code:FSHKeyCodeSpace weight:4.0 special:YES]];
         [row4 addObject:[self key:@"⌫" output:nil code:FSHKeyCodeDelete weight:1.5 special:YES]];
@@ -360,8 +363,20 @@
     [button setTitleColor:titleColor forState:UIControlStateHighlighted];
     [button setTitleColor:titleColor forState:UIControlStateSelected];
     button.tintColor = titleColor;
-    if (descriptor.keyCode != FSHKeyCodeDelete) {
+    if (descriptor.keyCode != FSHKeyCodeDelete && descriptor.keyCode != FSHKeyCodeGlobe) {
         [button addTarget:self action:@selector(handleKeyPress:) forControlEvents:UIControlEventTouchUpInside];
+    }
+
+    if (descriptor.keyCode == FSHKeyCodeGlobe) {
+        [button addTarget:self action:@selector(handleGlobeEvent:forEvent:) forControlEvents:UIControlEventAllTouchEvents];
+        button.accessibilityLabel = @"切換鍵盤";
+        __weak typeof(self) weakSelf = self;
+        button.accessibilityActivationHandler = ^{
+            typeof(self) strongSelf = weakSelf;
+            if ([strongSelf.delegate respondsToSelector:@selector(keyboardView:didPressKeyCode:output:)]) {
+                [strongSelf.delegate keyboardView:strongSelf didPressKeyCode:FSHKeyCodeGlobe output:nil];
+            }
+        };
     }
 
     if (descriptor.keyCode == FSHKeyCodeDelete) {
@@ -482,6 +497,12 @@
 - (void)handleKeyPress:(FSHKeyButton *)sender {
     if ([self.delegate respondsToSelector:@selector(keyboardView:didPressKeyCode:output:)]) {
         [self.delegate keyboardView:self didPressKeyCode:sender.keyCode output:sender.output];
+    }
+}
+
+- (void)handleGlobeEvent:(FSHKeyButton *)sender forEvent:(UIEvent *)event {
+    if ([self.delegate respondsToSelector:@selector(keyboardView:didReceiveInputModeEvent:fromView:)]) {
+        [self.delegate keyboardView:self didReceiveInputModeEvent:event fromView:sender];
     }
 }
 

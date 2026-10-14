@@ -26,7 +26,13 @@
 - (void)updateHintForCommittedValue:(NSString *)value typedCodeLength:(NSUInteger)typedCodeLength isReverse:(BOOL)isReverse;
 - (NSUInteger)beginEngineLoad;
 - (void)refreshCandidatesAndUI;
+- (void)refreshInputModeSwitchKey;
 - (void)finishEngineLoad:(FSHShiamyEngine *)loadedEngine loaded:(BOOL)loaded error:(NSError *)error generation:(NSUInteger)generation;
+@end
+
+@interface FSHKeyboardView (KeyboardInputTests)
+- (void)handleKeyPress:(FSHKeyButton *)sender;
+- (void)handleGlobeEvent:(FSHKeyButton *)sender forEvent:(UIEvent *)event;
 @end
 
 @interface FSHTestEngine : FSHShiamyEngine
@@ -183,6 +189,10 @@ static id FSHFixtureDefaults;
 @property (nonatomic, strong) FSHFakeDocumentProxy *fakeProxy;
 @property (nonatomic, assign) NSUInteger inputModeAdvanceCount;
 @property (nonatomic, assign) NSUInteger dismissCount;
+@property (nonatomic, assign) BOOL fakeNeedsInputModeSwitchKey;
+@property (nonatomic, assign) NSUInteger inputModeEventCount;
+@property (nonatomic, weak) UIView *lastInputModeEventView;
+@property (nonatomic, strong) UIEvent *lastInputModeEvent;
 @end
 
 @implementation FSHTestInputController
@@ -202,6 +212,16 @@ static id FSHFixtureDefaults;
 
 - (void)dismissKeyboard {
     self.dismissCount++;
+}
+
+- (BOOL)needsInputModeSwitchKey {
+    return self.fakeNeedsInputModeSwitchKey;
+}
+
+- (void)handleInputModeListFromView:(UIView *)view withEvent:(UIEvent *)event {
+    self.inputModeEventCount++;
+    self.lastInputModeEventView = view;
+    self.lastInputModeEvent = event;
 }
 @end
 
@@ -507,7 +527,8 @@ static id FSHFixtureDefaults;
 
 - (void)testEmojiPageDeleteHandlesGraphemesAndStopsHeldPress {
     for (NSNumber *globe in @[@NO, @YES]) {
-        self.keyboard.showsGlobe = globe.boolValue;
+        self.controller.fakeNeedsInputModeSwitchKey = globe.boolValue;
+        [self.controller refreshInputModeSwitchKey];
         self.keyboard.mode = FSHKeyboardModeEmoji;
         FSHKeyButton *emojiDelete = [self.keyboard valueForKey:@"deleteButton"];
         XCTAssertNotNil(emojiDelete);
@@ -551,6 +572,70 @@ static id FSHFixtureDefaults;
                 XCTAssertGreaterThanOrEqual(CGRectGetMinX(laidOutDelete.frame), -0.5);
                 XCTAssertLessThanOrEqual(CGRectGetMaxX(laidOutDelete.frame), width.doubleValue + 0.5);
             }
+        }
+    }
+}
+
+- (void)testSystemGlobeAppearsOnlyWhenNeededAndForwardsEveryTouchEvent {
+    for (NSNumber *needed in @[@YES, @NO]) {
+        self.controller.fakeNeedsInputModeSwitchKey = needed.boolValue;
+        [self.controller viewWillAppear:NO];
+        XCTAssertEqual(self.keyboard.showsGlobe, needed.boolValue);
+        for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious),
+                                  @(FSHKeyboardLayoutOriginal), @(FSHKeyboardLayoutOriginalNoNumber),
+                                  @(FSHKeyboardLayoutStandardLabelTop)]) {
+            self.keyboard.layout = layout.integerValue;
+            for (NSNumber *mode in @[@(FSHKeyboardModeLetters), @(FSHKeyboardModeSymbols),
+                                    @(FSHKeyboardModeSymbolsShift), @(FSHKeyboardModeEmoji)]) {
+                self.keyboard.mode = mode.integerValue;
+                NSMutableArray<FSHKeyButton *> *globes = [NSMutableArray array];
+                for (NSArray<FSHKeyButton *> *row in [self.keyboard valueForKey:@"rowButtons"]) {
+                    for (FSHKeyButton *button in row) {
+                        if (button.keyCode == FSHKeyCodeGlobe) {
+                            [globes addObject:button];
+                        }
+                    }
+                }
+                XCTAssertEqual(globes.count, needed.boolValue ? (NSUInteger)1 : (NSUInteger)0,
+                               @"layout %@ mode %@ needed %@", layout, mode, needed);
+                if (needed.boolValue && globes.count == 1) {
+                    FSHKeyButton *globe = globes.firstObject;
+                    XCTAssertEqualObjects(globe.accessibilityLabel, @"切換鍵盤");
+                    NSArray<NSString *> *downActions = [globe actionsForTarget:self.keyboard forControlEvent:UIControlEventTouchDown];
+                    NSArray<NSString *> *upActions = [globe actionsForTarget:self.keyboard forControlEvent:UIControlEventTouchUpInside];
+                    NSString *systemAction = NSStringFromSelector(@selector(handleGlobeEvent:forEvent:));
+                    XCTAssertTrue([downActions containsObject:systemAction]);
+                    XCTAssertTrue([upActions containsObject:systemAction]);
+                    XCTAssertFalse([upActions containsObject:NSStringFromSelector(@selector(handleKeyPress:))]);
+                }
+            }
+        }
+
+        FSHKeyButton *sameModeButton = [self.keyboard valueForKey:@"modeButton"];
+        [self.controller viewDidLayoutSubviews];
+        XCTAssertEqual([self.keyboard valueForKey:@"modeButton"], sameModeButton);
+        if (needed.boolValue) {
+            FSHKeyButton *globe = nil;
+            for (NSArray<FSHKeyButton *> *row in [self.keyboard valueForKey:@"rowButtons"]) {
+                for (FSHKeyButton *button in row) {
+                    if (button.keyCode == FSHKeyCodeGlobe) {
+                        globe = button;
+                    }
+                }
+            }
+            XCTAssertNotNil(globe);
+            NSUInteger eventBefore = self.controller.inputModeEventCount;
+            NSUInteger advancesBefore = self.controller.inputModeAdvanceCount;
+            [globe sendActionsForControlEvents:UIControlEventTouchDown];
+            XCTAssertEqual(self.controller.inputModeEventCount, eventBefore + 1);
+            XCTAssertEqual(self.controller.lastInputModeEventView, globe);
+            XCTAssertNil(self.controller.lastInputModeEvent);
+            [globe sendActionsForControlEvents:UIControlEventTouchUpInside];
+            XCTAssertEqual(self.controller.inputModeEventCount, eventBefore + 2);
+            XCTAssertEqual(self.controller.inputModeAdvanceCount, advancesBefore);
+            XCTAssertTrue([globe accessibilityActivate]);
+            XCTAssertEqual(self.controller.inputModeEventCount, eventBefore + 2);
+            XCTAssertEqual(self.controller.inputModeAdvanceCount, advancesBefore + 1);
         }
     }
 }
