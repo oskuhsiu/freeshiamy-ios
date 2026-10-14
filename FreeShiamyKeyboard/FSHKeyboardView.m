@@ -448,19 +448,18 @@
         BOOL isOriginalARow = NO;
         if (self.mode == FSHKeyboardModeLetters && self.leftShift && self.layout != FSHKeyboardLayoutOriginal && self.layout != FSHKeyboardLayoutOriginalNoNumber) {
             FSHKeyButton *first = row.firstObject;
-            NSString *label = [first titleForState:UIControlStateNormal];
-            if ([label isEqualToString:@"1"] || [label isEqualToString:@"Q"]) {
+            NSString *output = first.output;
+            if ([output isEqualToString:@"1"] || [output isEqualToString:@"q"]) {
                 rowInsetUnitsLeft = 0.5;
                 rowInsetUnitsRight = 0.5;
-            } else if ([label isEqualToString:@"A"]) {
+            } else if ([output isEqualToString:@"a"]) {
                 rowInsetUnitsLeft = 1.0;
                 shrinkDeleteHalf = YES;
             }
         }
         if (isOriginal) {
             FSHKeyButton *first = row.firstObject;
-            NSString *label = [first titleForState:UIControlStateNormal];
-            isOriginalARow = [label isEqualToString:@"A"];
+            isOriginalARow = [first.output isEqualToString:@"a"];
         }
         CGFloat totalWeight = 0.0;
         for (FSHKeyButton *button in row) {
@@ -544,22 +543,71 @@
 }
 
 - (void)updateShiftAppearance {
+    if (self.mode == FSHKeyboardModeLetters) {
+        BOOL uppercase = self.shiftOn || self.capsLockOn;
+        for (NSArray<FSHKeyButton *> *row in self.rowButtons) {
+            for (FSHKeyButton *button in row) {
+                NSString *output = button.output;
+                if (output.length == 1) {
+                    unichar ch = [output characterAtIndex:0];
+                    if (ch >= 'a' && ch <= 'z') {
+                        [button setTitle:uppercase ? output.uppercaseString : output forState:UIControlStateNormal];
+                    }
+                }
+            }
+        }
+    }
     if (!self.shiftButton) {
         return;
     }
-    if (self.capsLockOn) {
-        self.shiftButton.backgroundColor = [UIColor systemBlueColor];
-        [self.shiftButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    BOOL active = NO;
+    NSString *label;
+    NSString *value;
+    NSString *title;
+    UIColor *background;
+    UIColor *foreground;
+    if (self.mode == FSHKeyboardModeSymbolsShift) {
+        active = YES;
+        label = @"符號頁面";
+        value = @"第二頁";
+        title = @"123";
+        background = [UIColor systemBlueColor];
+        foreground = [UIColor whiteColor];
+    } else if (self.mode == FSHKeyboardModeSymbols) {
+        label = @"符號頁面";
+        value = @"第一頁";
+        title = @"#+=";
+        background = [self specialKeyBackgroundColor];
+        foreground = [UIColor labelColor];
+    } else if (self.capsLockOn) {
+        active = YES;
+        label = @"大寫鎖定";
+        value = @"已鎖定";
+        title = @"⇪";
+        background = [UIColor systemIndigoColor];
+        foreground = [UIColor whiteColor];
     } else if (self.shiftOn) {
-        self.shiftButton.backgroundColor = [UIColor systemBlueColor];
-        [self.shiftButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        active = YES;
+        label = @"大寫";
+        value = @"下一個字母";
+        title = @"⇧";
+        background = [UIColor systemBlueColor];
+        foreground = [UIColor whiteColor];
     } else {
-        self.shiftButton.backgroundColor = [self specialKeyBackgroundColor];
-        UIColor *titleColor = [UIColor labelColor];
-        [self.shiftButton setTitleColor:titleColor forState:UIControlStateNormal];
-        [self.shiftButton setTitleColor:titleColor forState:UIControlStateHighlighted];
-        [self.shiftButton setTitleColor:titleColor forState:UIControlStateSelected];
+        label = @"大寫";
+        value = @"關閉";
+        title = @"⇧";
+        background = [self specialKeyBackgroundColor];
+        foreground = [UIColor labelColor];
     }
+    [self.shiftButton setTitle:title forState:UIControlStateNormal];
+    self.shiftButton.accessibilityLabel = label;
+    self.shiftButton.accessibilityValue = value;
+    self.shiftButton.accessibilityTraits = UIAccessibilityTraitButton | (active ? UIAccessibilityTraitSelected : 0);
+    self.shiftButton.backgroundColor = background;
+    [self.shiftButton setTitleColor:foreground forState:UIControlStateNormal];
+    [self.shiftButton setTitleColor:foreground forState:UIControlStateHighlighted];
+    [self.shiftButton setTitleColor:foreground forState:UIControlStateSelected];
 }
 
 - (UIColor *)keyboardBackgroundColor {
@@ -578,7 +626,7 @@
 
 - (UIColor *)specialKeyBackgroundColor {
     if (@available(iOS 13.0, *)) {
-        return [UIColor tertiarySystemBackgroundColor];
+        return [UIColor systemGray4Color];
     }
     return [UIColor colorWithWhite:0.85 alpha:1.0];
 }

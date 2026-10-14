@@ -21,7 +21,9 @@
 @interface InputViewController (KeyboardInputTests)
 - (void)candidateBarViewDidTapRawBuffer:(FSHCandidateBarView *)barView;
 - (void)candidateBarView:(FSHCandidateBarView *)barView didSelectCandidateAtIndex:(NSUInteger)index;
+- (void)candidateBarView:(FSHCandidateBarView *)barView didToggleExpanded:(BOOL)expanded;
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didPressKeyCode:(NSInteger)keyCode output:(NSString *)output;
+- (void)keyboardView:(FSHKeyboardView *)keyboardView didReceiveInputModeEvent:(UIEvent *)event fromView:(UIView *)view;
 - (void)triggerReverseLookupWithBaseIndex:(NSUInteger)index;
 - (void)updateHintForCommittedValue:(NSString *)value typedCodeLength:(NSUInteger)typedCodeLength isReverse:(BOOL)isReverse;
 - (NSUInteger)beginEngineLoad;
@@ -445,6 +447,181 @@ static id FSHFixtureDefaults;
     XCTAssertEqual(keyboard.mode, FSHKeyboardModeEmoji);
     XCTAssertTrue(keyboard.shiftOn);
     XCTAssertTrue(keyboard.capsLockOn);
+}
+
+- (FSHKeyButton *)keyWithOutput:(NSString *)output inKeyboard:(FSHKeyboardView *)keyboard {
+    for (NSArray<FSHKeyButton *> *row in [keyboard valueForKey:@"rowButtons"]) {
+        for (FSHKeyButton *button in row) {
+            if ([button.output isEqualToString:output]) {
+                return button;
+            }
+        }
+    }
+    return nil;
+}
+
+- (void)testShiftStatesHaveDistinctLabelsAndKeepLetterGeometry {
+    FSHKeyboardView *keyboard = [[FSHKeyboardView alloc] initWithFrame:CGRectMake(0, 0, 375, 216)];
+    for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious),
+                              @(FSHKeyboardLayoutOriginal), @(FSHKeyboardLayoutOriginalNoNumber)]) {
+        keyboard.layout = layout.integerValue;
+        keyboard.mode = FSHKeyboardModeLetters;
+        keyboard.shiftOn = NO;
+        keyboard.capsLockOn = NO;
+        [keyboard layoutIfNeeded];
+        FSHKeyButton *shift = [keyboard valueForKey:@"shiftButton"];
+        FSHKeyButton *q = [self keyWithOutput:@"q" inKeyboard:keyboard];
+        FSHKeyButton *a = [self keyWithOutput:@"a" inKeyboard:keyboard];
+        FSHKeyButton *z = [self keyWithOutput:@"z" inKeyboard:keyboard];
+        XCTAssertNotNil(shift);
+        XCTAssertNotNil(q);
+        XCTAssertNotNil(a);
+        XCTAssertNotNil(z);
+        CGRect qFrame = q.frame, aFrame = a.frame, zFrame = z.frame;
+        XCTAssertEqualObjects([q titleForState:UIControlStateNormal], @"q");
+        XCTAssertEqualObjects([a titleForState:UIControlStateNormal], @"a");
+        XCTAssertEqualObjects([z titleForState:UIControlStateNormal], @"z");
+        XCTAssertEqualObjects([shift titleForState:UIControlStateNormal], @"⇧");
+        XCTAssertEqualObjects(shift.accessibilityValue, @"關閉");
+        XCTAssertFalse((shift.accessibilityTraits & UIAccessibilityTraitSelected) != 0);
+
+        keyboard.shiftOn = YES;
+        [keyboard layoutIfNeeded];
+        XCTAssertEqualObjects([q titleForState:UIControlStateNormal], @"Q");
+        XCTAssertEqualObjects([a titleForState:UIControlStateNormal], @"A");
+        XCTAssertEqualObjects([z titleForState:UIControlStateNormal], @"Z");
+        XCTAssertEqualObjects(shift.accessibilityValue, @"下一個字母");
+        XCTAssertTrue((shift.accessibilityTraits & UIAccessibilityTraitSelected) != 0);
+        XCTAssertTrue(CGRectEqualToRect(q.frame, qFrame), @"Q moved in layout %@: %@ → %@", layout,
+                      NSStringFromCGRect(qFrame), NSStringFromCGRect(q.frame));
+        XCTAssertTrue(CGRectEqualToRect(a.frame, aFrame), @"A moved in layout %@: %@ → %@", layout,
+                      NSStringFromCGRect(aFrame), NSStringFromCGRect(a.frame));
+        XCTAssertTrue(CGRectEqualToRect(z.frame, zFrame), @"Z moved in layout %@: %@ → %@", layout,
+                      NSStringFromCGRect(zFrame), NSStringFromCGRect(z.frame));
+
+        keyboard.shiftOn = NO;
+        keyboard.capsLockOn = YES;
+        [keyboard layoutIfNeeded];
+        XCTAssertEqualObjects([shift titleForState:UIControlStateNormal], @"⇪");
+        XCTAssertEqualObjects(shift.accessibilityLabel, @"大寫鎖定");
+        XCTAssertEqualObjects(shift.accessibilityValue, @"已鎖定");
+        XCTAssertTrue((shift.accessibilityTraits & UIAccessibilityTraitSelected) != 0);
+        XCTAssertEqualObjects([q titleForState:UIControlStateNormal], @"Q");
+        XCTAssertTrue(CGRectEqualToRect(q.frame, qFrame));
+        XCTAssertTrue(CGRectEqualToRect(a.frame, aFrame));
+        XCTAssertTrue(CGRectEqualToRect(z.frame, zFrame));
+
+        keyboard.mode = FSHKeyboardModeSymbols;
+        shift = [keyboard valueForKey:@"shiftButton"];
+        XCTAssertEqualObjects([shift titleForState:UIControlStateNormal], @"#+=");
+        XCTAssertEqualObjects(shift.accessibilityValue, @"第一頁");
+        XCTAssertFalse((shift.accessibilityTraits & UIAccessibilityTraitSelected) != 0);
+        keyboard.mode = FSHKeyboardModeSymbolsShift;
+        shift = [keyboard valueForKey:@"shiftButton"];
+        XCTAssertEqualObjects([shift titleForState:UIControlStateNormal], @"123");
+        XCTAssertEqualObjects(shift.accessibilityValue, @"第二頁");
+        XCTAssertTrue((shift.accessibilityTraits & UIAccessibilityTraitSelected) != 0);
+        keyboard.mode = FSHKeyboardModeLetters;
+        shift = [keyboard valueForKey:@"shiftButton"];
+        XCTAssertEqualObjects([shift titleForState:UIControlStateNormal], @"⇪");
+        XCTAssertEqualObjects([self keyWithOutput:@"q" inKeyboard:keyboard].currentTitle, @"Q");
+    }
+}
+
+- (void)testSingleShiftExpiresAfterOneLetterWhileCapsLockPersists {
+    self.keyboard.mode = FSHKeyboardModeLetters;
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertTrue(self.keyboard.shiftOn);
+    XCTAssertFalse(self.keyboard.capsLockOn);
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"a"];
+    XCTAssertEqualObjects(self.proxy.text, @"A");
+    XCTAssertFalse(self.keyboard.shiftOn);
+    XCTAssertEqualObjects([[self.keyboard valueForKey:@"shiftButton"] accessibilityValue], @"關閉");
+
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertTrue(self.keyboard.shiftOn); // Typing a letter cleared the double-tap window.
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertTrue(self.keyboard.capsLockOn);
+    XCTAssertFalse(self.keyboard.shiftOn);
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"b"];
+    XCTAssertEqualObjects(self.proxy.text, @"AB");
+    XCTAssertTrue(self.keyboard.capsLockOn);
+
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeModeChange output:nil];
+    XCTAssertEqual(self.keyboard.mode, FSHKeyboardModeSymbols);
+    XCTAssertEqualObjects([[self.keyboard valueForKey:@"shiftButton"] accessibilityValue], @"第一頁");
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertEqual(self.keyboard.mode, FSHKeyboardModeSymbolsShift);
+    XCTAssertEqualObjects([[self.keyboard valueForKey:@"shiftButton"] accessibilityValue], @"第二頁");
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeModeChange output:nil];
+    XCTAssertEqual(self.keyboard.mode, FSHKeyboardModeLetters);
+    XCTAssertEqualObjects([[self.keyboard valueForKey:@"shiftButton"] accessibilityValue], @"已鎖定");
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertFalse(self.keyboard.capsLockOn);
+    XCTAssertEqualObjects([[self.keyboard valueForKey:@"shiftButton"] accessibilityValue], @"關閉");
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertTrue(self.keyboard.shiftOn); // Unlocking Caps cleared the double-tap window.
+    XCTAssertFalse(self.keyboard.capsLockOn);
+}
+
+- (void)testReadyEnginePunctuationDoesNotConsumeOneShotShift {
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertTrue(self.keyboard.shiftOn);
+    for (NSString *punctuation in @[@",", @"'", @"[", @"]"]) {
+        [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:punctuation];
+        XCTAssertTrue(self.keyboard.shiftOn, @"One-shot shift was consumed by %@", punctuation);
+    }
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"a"];
+    XCTAssertFalse(self.keyboard.shiftOn);
+    XCTAssertEqualObjects([self rawBuffer], @",'[]A");
+}
+
+- (void)testCandidateBarActionBreaksShiftDoubleTapSequence {
+    [[self rawBuffer] setString:@"a"];
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertTrue(self.keyboard.shiftOn);
+    FSHCandidateBarView *bar = [self.controller valueForKey:@"candidateBar"];
+    [self.controller candidateBarViewDidTapRawBuffer:bar];
+    XCTAssertEqualObjects(self.proxy.text, @"a");
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertFalse(self.keyboard.shiftOn);
+    XCTAssertFalse(self.keyboard.capsLockOn);
+}
+
+- (void)testDeletePressBreaksShiftDoubleTapSequence {
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertTrue(self.keyboard.shiftOn);
+    XCTAssertFalse(self.keyboard.capsLockOn);
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+    XCTAssertNil([self.controller valueForKey:@"lastShiftTapDate"]);
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertFalse(self.keyboard.shiftOn);
+    XCTAssertFalse(self.keyboard.capsLockOn);
+}
+
+- (void)testSystemGlobeEventBreaksShiftDoubleTapSequence {
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertTrue(self.keyboard.shiftOn);
+    XCTAssertFalse(self.keyboard.capsLockOn);
+    [self.controller keyboardView:self.keyboard didReceiveInputModeEvent:nil fromView:self.keyboard];
+    XCTAssertNil([self.controller valueForKey:@"lastShiftTapDate"]);
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertFalse(self.keyboard.shiftOn);
+    XCTAssertFalse(self.keyboard.capsLockOn);
+}
+
+- (void)testMoreToggleBreaksShiftDoubleTapSequence {
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertTrue(self.keyboard.shiftOn);
+    XCTAssertFalse(self.keyboard.capsLockOn);
+    FSHCandidateBarView *bar = [self.controller valueForKey:@"candidateBar"];
+    [self.controller candidateBarView:bar didToggleExpanded:YES];
+    XCTAssertNil([self.controller valueForKey:@"lastShiftTapDate"]);
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeShift output:nil];
+    XCTAssertFalse(self.keyboard.shiftOn);
+    XCTAssertFalse(self.keyboard.capsLockOn);
 }
 
 - (void)testTapDeletesRawBufferExactlyOnce {
@@ -1015,9 +1192,17 @@ static id FSHFixtureDefaults;
     UIButton *firstCandidate = (UIButton *)candidateStack.arrangedSubviews.firstObject;
     XCTAssertEqualObjects([firstCandidate titleForState:UIControlStateNormal], @"中");
 
-    NSArray<NSNumber *> *modes = @[@(FSHKeyboardModeLetters), @(FSHKeyboardModeSymbolsShift), @(FSHKeyboardModeEmoji)];
-    for (NSNumber *mode in modes) {
-        keyboard.mode = mode.integerValue;
+    NSArray<NSDictionary<NSString *, id> *> *appearances = @[
+        @{@"mode": @(FSHKeyboardModeLetters), @"shift": @NO, @"caps": @NO, @"name": @"letters lowercase"},
+        @{@"mode": @(FSHKeyboardModeLetters), @"shift": @YES, @"caps": @NO, @"name": @"letters one-shot shift"},
+        @{@"mode": @(FSHKeyboardModeLetters), @"shift": @NO, @"caps": @YES, @"name": @"letters caps lock"},
+        @{@"mode": @(FSHKeyboardModeSymbolsShift), @"shift": @NO, @"caps": @NO, @"name": @"symbols second page"},
+        @{@"mode": @(FSHKeyboardModeEmoji), @"shift": @NO, @"caps": @NO, @"name": @"emoji"},
+    ];
+    for (NSDictionary<NSString *, id> *appearance in appearances) {
+        keyboard.mode = [appearance[@"mode"] integerValue];
+        keyboard.shiftOn = [appearance[@"shift"] boolValue];
+        keyboard.capsLockOn = [appearance[@"caps"] boolValue];
         for (NSNumber *style in @[@(UIUserInterfaceStyleLight), @(UIUserInterfaceStyleDark)]) {
             window.overrideUserInterfaceStyle = style.integerValue;
             [window layoutIfNeeded];
@@ -1041,8 +1226,8 @@ static id FSHFixtureDefaults;
             }];
             XCTAssertTrue(rendered);
             XCTAttachment *attachment = [XCTAttachment attachmentWithImage:snapshot];
-            attachment.name = [NSString stringWithFormat:@"Production keyboard host harness mode %ld - %@",
-                               (long)mode.integerValue, style.integerValue == UIUserInterfaceStyleDark ? @"dark" : @"light"];
+            attachment.name = [NSString stringWithFormat:@"Production keyboard host harness %@ - %@",
+                               appearance[@"name"], style.integerValue == UIUserInterfaceStyleDark ? @"dark" : @"light"];
             attachment.lifetime = XCTAttachmentLifetimeKeepAlways;
             [self addAttachment:attachment];
         }

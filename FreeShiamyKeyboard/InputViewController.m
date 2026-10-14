@@ -285,6 +285,9 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
         }
         return;
     }
+    if (keyCode != FSHKeyCodeShift) {
+        self.lastShiftTapDate = nil;
+    }
     [self clearHint];
 
     if (keyCode == FSHKeyCodeShift) {
@@ -338,6 +341,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 }
 
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didReceiveInputModeEvent:(UIEvent *)event fromView:(UIView *)view {
+    self.lastShiftTapDate = nil;
     [self handleInputModeListFromView:view withEvent:event];
 }
 
@@ -362,6 +366,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
         [self refreshCandidatesAndUI];
         if (isLetter && self.shiftOn && !self.capsLockOn) {
             self.shiftOn = NO;
+            self.lastShiftTapDate = nil;
             self.keyboardView.shiftOn = NO;
         }
     }
@@ -391,6 +396,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didBeginPressKeyCode:(NSInteger)keyCode output:(NSString *)output {
     if (keyCode == FSHKeyCodeDelete) {
+        self.lastShiftTapDate = nil;
         if ([self reconcileCompositionDocument]) {
             return;
         }
@@ -427,6 +433,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     if (self.capsLockOn) {
         self.capsLockOn = NO;
         self.shiftOn = NO;
+        self.lastShiftTapDate = nil;
     } else if (interval < 0.8) {
         self.capsLockOn = YES;
         self.shiftOn = NO;
@@ -571,7 +578,8 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 
     if ([self isCodeChar:ch]) {
         NSString *finalChar = single;
-        if ([[NSCharacterSet letterCharacterSet] characterIsMember:ch]) {
+        BOOL isLetter = [[NSCharacterSet letterCharacterSet] characterIsMember:ch];
+        if (isLetter) {
             if (self.shiftOn || self.capsLockOn) {
                 finalChar = [single uppercaseString];
             } else {
@@ -579,8 +587,9 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
             }
         }
         [self appendToRawBuffer:finalChar];
-        if (self.shiftOn && !self.capsLockOn) {
+        if (isLetter && self.shiftOn && !self.capsLockOn) {
             self.shiftOn = NO;
+            self.lastShiftTapDate = nil;
             self.keyboardView.shiftOn = NO;
         }
         return;
@@ -727,6 +736,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 #pragma mark - Candidate Bar Delegate
 
 - (void)candidateBarViewDidTapRawBuffer:(FSHCandidateBarView *)barView {
+    self.lastShiftTapDate = nil;
     if ([self reconcileCompositionDocument]) {
         return;
     }
@@ -737,6 +747,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 }
 
 - (void)candidateBarView:(FSHCandidateBarView *)barView didSelectCandidateAtIndex:(NSUInteger)index {
+    self.lastShiftTapDate = nil;
     if ([self reconcileCompositionDocument]) {
         return;
     }
@@ -753,6 +764,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 }
 
 - (void)candidateBarView:(FSHCandidateBarView *)barView didToggleExpanded:(BOOL)expanded {
+    self.lastShiftTapDate = nil;
     [self updatePreferredContentSize];
     [self updateCandidateBarHeight];
 }
