@@ -12,7 +12,7 @@ This branch starts from `master` at `2d449c3ce19b5faaa0704d4c67a69a4e75f0736f`. 
 | F06 | Under test | Emoji rows omit Delete | Delete works without leaving emoji mode |
 | F07 | Under test | Symbol rows omit !, ?, double quote, backtick | All four directly reachable without losing existing symbols |
 | F08 | Open | QAZ/Del setting shifts Q/A but not Z and narrows Delete | Q/A/Z/Delete geometry checked at four widths |
-| F09 | Open | Original layout changes row gap after calculating row height | Last row reaches bottom for both Original layouts |
+| F09 | Under test | Original layout changes row gap after calculating row height | Last row reaches bottom for both Original layouts |
 | F10 | Open | Narrow key gaps and 32×28 More control | Non-overlapping hit-map checks for Delete/More/Return |
 | F11 | Open | Shift/Caps/symbol states share appearance | Distinct visual and accessibility states, sequence tests |
 | F12 | Open | Emoji/Settings require hidden long presses | Discoverable, named and accessible actions |

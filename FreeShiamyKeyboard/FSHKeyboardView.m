@@ -383,7 +383,8 @@
     CGFloat totalHeight = self.bounds.size.height;
     CGFloat totalWidth = self.bounds.size.width;
     NSUInteger rowsCount = self.rowButtons.count;
-    CGFloat rowGap = 6.0;
+    BOOL originalLayout = (self.layout == FSHKeyboardLayoutOriginal || self.layout == FSHKeyboardLayoutOriginalNoNumber);
+    CGFloat rowGap = originalLayout ? 1.0 : 6.0;
     CGFloat rowHeight = (totalHeight - rowGap * (rowsCount - 1)) / rowsCount;
 
     CGFloat hGap = 4.0;
@@ -391,10 +392,9 @@
     if (self.layout == FSHKeyboardLayoutStandardSpacious) {
         hGap = totalWidth * 0.015;
         sideInset = totalWidth * 0.0575;
-    } else if (self.layout == FSHKeyboardLayoutOriginal || self.layout == FSHKeyboardLayoutOriginalNoNumber) {
+    } else if (originalLayout) {
         hGap = 1.0;
         sideInset = 0.0;
-        rowGap = 1.0;
     }
 
     for (NSUInteger rowIndex = 0; rowIndex < rowsCount; rowIndex++) {

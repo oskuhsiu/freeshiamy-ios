@@ -373,6 +373,41 @@
     }
 }
 
+- (void)testOriginalLayoutsFillTheirAvailableHeight {
+    for (NSNumber *mode in @[@(FSHKeyboardModeLetters), @(FSHKeyboardModeSymbols),
+                            @(FSHKeyboardModeSymbolsShift), @(FSHKeyboardModeEmoji)]) {
+        self.keyboard.mode = mode.integerValue;
+        for (NSNumber *layout in @[@(FSHKeyboardLayoutOriginal), @(FSHKeyboardLayoutOriginalNoNumber),
+                                  @(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious)]) {
+            self.keyboard.layout = layout.integerValue;
+            CGFloat expectedGap = (layout.integerValue == FSHKeyboardLayoutOriginal ||
+                                   layout.integerValue == FSHKeyboardLayoutOriginalNoNumber) ? 1.0 : 6.0;
+            for (NSNumber *showNumbers in @[@NO, @YES]) {
+                self.keyboard.showNumberRow = showNumbers.boolValue;
+                for (NSNumber *height in @[@180.0, @216.0, @300.0]) {
+                    self.keyboard.frame = CGRectMake(0.0, 0.0, 375.0, height.doubleValue);
+                    [self.keyboard layoutIfNeeded];
+                    NSArray<NSArray<FSHKeyButton *> *> *rows = [self.keyboard valueForKey:@"rowButtons"];
+                    XCTAssertGreaterThan(rows.count, (NSUInteger)0);
+                    CGFloat previousBottom = 0.0;
+                    for (NSUInteger rowIndex = 0; rowIndex < rows.count; rowIndex++) {
+                        NSArray<FSHKeyButton *> *row = rows[rowIndex];
+                        CGFloat top = CGRectGetMinY(row.firstObject.frame);
+                        if (rowIndex == 0) {
+                            XCTAssertEqualWithAccuracy(top, 0.0, 0.5);
+                        } else {
+                            XCTAssertEqualWithAccuracy(top - previousBottom, expectedGap, 0.5);
+                        }
+                        previousBottom = CGRectGetMaxY(row.firstObject.frame);
+                    }
+                    XCTAssertEqualWithAccuracy(previousBottom, height.doubleValue, 0.5,
+                                               @"Mode %@ layout %@ numbers %@ height %@", mode, layout, showNumbers, height);
+                }
+            }
+        }
+    }
+}
+
 - (void)testProductionKeyboardViewsRenderInAttachedHostWindow {
     UIWindowScene *activeScene = nil;
     for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
