@@ -4,10 +4,28 @@
 #import "FSHKeyButton.h"
 #import "FSHCandidateBarView.h"
 #import "FSHCandidate.h"
+#import "FSHShiamyEngine.h"
 
 @interface InputViewController (KeyboardInputTests)
 - (void)candidateBarViewDidTapRawBuffer:(FSHCandidateBarView *)barView;
 - (void)candidateBarView:(FSHCandidateBarView *)barView didSelectCandidateAtIndex:(NSUInteger)index;
+- (void)keyboardView:(FSHKeyboardView *)keyboardView didPressKeyCode:(NSInteger)keyCode output:(NSString *)output;
+- (void)triggerReverseLookupWithBaseIndex:(NSUInteger)index;
+- (void)updateHintForCommittedValue:(NSString *)value typedCodeLength:(NSUInteger)typedCodeLength isReverse:(BOOL)isReverse;
+@end
+
+@interface FSHTestEngine : FSHShiamyEngine
+@property (nonatomic, assign) NSUInteger reverseCallCount;
+@end
+
+@implementation FSHTestEngine
+- (NSArray<FSHCandidate *> *)reverseLookupCandidatesForBaseValue:(NSString *)baseValue {
+    self.reverseCallCount++;
+    return @[[[FSHCandidate alloc] initWithCode:@"reading" value:baseValue]];
+}
+- (NSString *)shortestCodeForValue:(NSString *)value {
+    return @"a";
+}
 @end
 
 @interface FSHFakeDocumentProxy : NSObject
@@ -42,6 +60,7 @@
 @interface FSHTestInputController : InputViewController
 @property (nonatomic, strong) FSHFakeDocumentProxy *fakeProxy;
 @property (nonatomic, assign) NSUInteger inputModeAdvanceCount;
+@property (nonatomic, assign) NSUInteger dismissCount;
 @end
 
 @implementation FSHTestInputController
@@ -60,6 +79,7 @@
 }
 
 - (void)dismissKeyboard {
+    self.dismissCount++;
 }
 @end
 
@@ -195,6 +215,22 @@
     }
 }
 
+- (void)testReverseLookupAndHintRecognizeOneComposedCharacter {
+    FSHTestEngine *engine = [[FSHTestEngine alloc] init];
+    [self.controller setValue:engine forKey:@"engine"];
+    for (NSString *value in @[@"😀", @"☹️", @"é", @"👨‍👩‍👧‍👦", @"𠀀"]) {
+        [self.controller setValue:@[[[FSHCandidate alloc] initWithCode:@"abcd" value:value]]
+                          forKey:@"candidates"];
+        NSUInteger previousCount = engine.reverseCallCount;
+        [self.controller triggerReverseLookupWithBaseIndex:0];
+        XCTAssertEqual(engine.reverseCallCount, previousCount + 1, @"Failed for %@", value);
+        [self.controller updateHintForCommittedValue:value typedCodeLength:4 isReverse:NO];
+        XCTAssertEqualObjects([self.controller valueForKey:@"shortestHint"], @"字根：A");
+    }
+    [self.controller updateHintForCommittedValue:@"ab" typedCodeLength:4 isReverse:NO];
+    XCTAssertEqualObjects([self.controller valueForKey:@"shortestHint"], @"");
+}
+
 - (void)testAccessibleActivationDeletesExactlyOnce {
     [self.proxy.text setString:@"abc"];
     XCTAssertTrue([self.deleteButton accessibilityActivate]);
@@ -238,6 +274,29 @@
     [self.controller candidateBarView:bar didSelectCandidateAtIndex:0];
     XCTAssertEqualObjects(self.proxy.text, @"host");
     XCTAssertEqualObjects([self rawBuffer], @"");
+
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeGlobe output:nil];
+    XCTAssertEqual(self.controller.inputModeAdvanceCount, (NSUInteger)1);
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeCancel output:nil];
+    XCTAssertEqual(self.controller.dismissCount, (NSUInteger)1);
+    XCTAssertEqualObjects(self.proxy.text, @"host");
+}
+
+- (void)testSensitiveTransitionStopsHeldDeleteAndOrdinaryInputResumes {
+    [self.proxy.text setString:@"abcdef"];
+    [self.controller setValue:@YES forKey:@"disableIMEInSensitive"];
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchDown];
+    XCTAssertEqualObjects(self.proxy.text, @"abcde");
+    self.proxy.secureTextEntry = YES;
+    [self waitForSeconds:0.55];
+    XCTAssertEqualObjects(self.proxy.text, @"abcde");
+    XCTAssertNil([self.controller valueForKey:@"deleteRepeatTimer"]);
+    [self.controller textDidChange:nil];
+    self.proxy.secureTextEntry = NO;
+    [self.controller textDidChange:nil];
+    [self.deleteButton sendActionsForControlEvents:UIControlEventTouchUpInside];
+    [self tapDelete];
+    XCTAssertEqualObjects(self.proxy.text, @"abcd");
 }
 
 @end

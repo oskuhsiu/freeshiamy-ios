@@ -198,7 +198,14 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 #pragma mark - Input Handling
 
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didPressKeyCode:(NSInteger)keyCode output:(NSString *)output {
+    BOOL wasInSensitiveField = self.isInSensitiveField;
+    BOOL hadHostConnection = self.hasHostConnection;
     if ([self blockSensitiveInputIfNeeded]) {
+        if (keyCode == FSHKeyCodeGlobe && (wasInSensitiveField || !hadHostConnection)) {
+            [self advanceToNextInputMode];
+        } else if (keyCode == FSHKeyCodeCancel && (wasInSensitiveField || !hadHostConnection)) {
+            [self dismissKeyboard];
+        }
         return;
     }
     [self clearHint];
@@ -518,7 +525,7 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
         return;
     }
     FSHCandidate *baseCandidate = self.candidates[index];
-    if (baseCandidate.value.length != 1) {
+    if (![self isSingleComposedCharacter:baseCandidate.value]) {
         [self commitCandidateAtIndex:index typedCodeLength:[self currentPrefix].length isReverse:NO];
         return;
     }
@@ -561,7 +568,7 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
         return;
     }
     [self.textDocumentProxy insertText:[self.rawBuffer copy]];
-    if (self.showShortestHint && self.rawBuffer.length == 1) {
+    if (self.showShortestHint && [self isSingleComposedCharacter:self.rawBuffer]) {
         [self updateHintForCommittedValue:self.rawBuffer typedCodeLength:self.rawBuffer.length isReverse:NO];
     }
     [self clearComposingState];
@@ -640,7 +647,7 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
 }
 
 - (void)updateHintForCommittedValue:(NSString *)value typedCodeLength:(NSUInteger)typedCodeLength isReverse:(BOOL)isReverse {
-    if (value.length != 1) {
+    if (![self isSingleComposedCharacter:value]) {
         self.shortestHint = @"";
         return;
     }
@@ -659,6 +666,14 @@ typedef NS_ENUM(NSInteger, FSHReverseState) {
     }
     NSString *upper = [shortest uppercaseString];
     self.shortestHint = [NSString stringWithFormat:@"字根：%@", upper];
+}
+
+- (BOOL)isSingleComposedCharacter:(NSString *)value {
+    if (value.length == 0) {
+        return NO;
+    }
+    NSRange first = [value rangeOfComposedCharacterSequenceAtIndex:0];
+    return NSMaxRange(first) == value.length;
 }
 
 - (void)openSettings {
