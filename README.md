@@ -15,7 +15,7 @@ This branch starts from `master` at `2d449c3ce19b5faaa0704d4c67a69a4e75f0736f`. 
 | F09 | Under test | Original layout changes row gap after calculating row height | Last row reaches bottom for both Original layouts |
 | F10 | Open | Narrow key gaps and 32×28 More control | Non-overlapping hit-map checks for Delete/More/Return |
 | F11 | Under test | Shift/Caps/symbol states share appearance | Distinct visual and accessibility states, sequence tests |
-| F12 | Open | Emoji/Settings require hidden long presses | Discoverable, named and accessible actions |
+| F12 | Under test | Emoji/Settings require hidden long presses | Discoverable, named and accessible actions |
 | F13 | Open | Return substitutes dismissal/tab for host actions | Trait labels and host behavior matrix, with integration limits stated |
 | F14 | Under test | Hidden More reserves trailing space | One/ten/eleven-candidate width tests |
 | F15 | Under test | Candidate scroll stays at prior offset across queries | New-query reset and same-data relayout tests |

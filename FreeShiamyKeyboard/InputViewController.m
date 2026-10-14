@@ -4,6 +4,7 @@
 #import "FSHShiamyEngine.h"
 #import "FSHCandidate.h"
 #import "FSHSettings.h"
+#import <math.h>
 
 typedef NS_ENUM(NSInteger, FSHReverseState) {
     FSHReverseStateNone,
@@ -44,6 +45,9 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 @property (nonatomic, copy) NSUUID *deleteDocumentIdentifier;
 
 @property (nonatomic, copy) NSString *shortestHint;
+@property (nonatomic, strong) UIButton *settingsHelpBanner;
+@property (nonatomic, copy) NSUUID *settingsHelpDocumentIdentifier;
+@property (nonatomic, strong) NSLayoutConstraint *settingsHelpHeightConstraint;
 
 @property (nonatomic, assign) NSUInteger inlineLimit;
 @property (nonatomic, assign) NSUInteger moreLimit;
@@ -80,6 +84,23 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     self.keyboardView.delegate = self;
     [self.view addSubview:self.keyboardView];
 
+    self.settingsHelpBanner = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.settingsHelpBanner.translatesAutoresizingMaskIntoConstraints = NO;
+    self.settingsHelpBanner.hidden = YES;
+    self.settingsHelpBanner.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    self.settingsHelpBanner.layer.cornerRadius = 6.0;
+    self.settingsHelpBanner.layer.borderWidth = 1.0;
+    self.settingsHelpBanner.layer.borderColor = [UIColor systemBlueColor].CGColor;
+    self.settingsHelpBanner.titleLabel.font = [UIFont systemFontOfSize:14.0 weight:UIFontWeightMedium];
+    self.settingsHelpBanner.titleLabel.adjustsFontSizeToFitWidth = YES;
+    self.settingsHelpBanner.titleLabel.minimumScaleFactor = 0.8;
+    [self.settingsHelpBanner setTitle:@"請開啟 FreeShiamy App → 設定  ×" forState:UIControlStateNormal];
+    [self.settingsHelpBanner setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
+    self.settingsHelpBanner.accessibilityIdentifier = @"settingsHelpBanner";
+    self.settingsHelpBanner.accessibilityLabel = @"請開啟 FreeShiamy App，點選設定。輕點關閉提示。";
+    [self.settingsHelpBanner addTarget:self action:@selector(dismissSettingsHelp) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:self.settingsHelpBanner];
+
     self.candidateBar.translatesAutoresizingMaskIntoConstraints = NO;
     self.keyboardView.translatesAutoresizingMaskIntoConstraints = NO;
 
@@ -92,7 +113,15 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
         [self.keyboardView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [self.keyboardView.topAnchor constraintEqualToAnchor:self.candidateBar.bottomAnchor],
         [self.keyboardView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+
+        [self.settingsHelpBanner.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.settingsHelpBanner.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.settingsHelpBanner.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [self.settingsHelpBanner.bottomAnchor constraintLessThanOrEqualToAnchor:self.keyboardView.topAnchor],
     ]];
+    self.settingsHelpHeightConstraint = [self.settingsHelpBanner.heightAnchor constraintEqualToConstant:self.candidateBar.barHeight];
+    self.settingsHelpHeightConstraint.priority = 999;
+    self.settingsHelpHeightConstraint.active = YES;
     self.candidateBarHeightConstraint = [self.candidateBar.heightAnchor constraintEqualToConstant:self.candidateBar.barHeight];
     self.candidateBarHeightConstraint.priority = UILayoutPriorityDefaultHigh;
     self.candidateBarHeightConstraint.active = YES;
@@ -114,6 +143,11 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
+    CGFloat available = MAX(0.0, CGRectGetHeight(self.candidateBar.bounds));
+    CGFloat helpHeight = MIN(44.0, MIN(self.candidateBar.barHeight, available));
+    if (fabs(self.settingsHelpHeightConstraint.constant - helpHeight) > 0.5) {
+        self.settingsHelpHeightConstraint.constant = helpHeight;
+    }
     [self refreshInputModeSwitchKey];
 }
 
@@ -126,6 +160,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
+    [self dismissSettingsHelp];
     [self endLiteralFallback];
     self.shortestHint = @"";
     [self clearComposingState];
@@ -140,6 +175,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 
 - (void)textWillChange:(id<UITextInput>)textInput {
     [super textWillChange:textInput];
+    [self dismissSettingsHelpIfDocumentChanged];
     [self reconcileLiteralFallbackDocument];
     [self reconcileCompositionDocument];
     [self handleSensitiveFieldIfNeeded];
@@ -147,6 +183,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 
 - (void)textDidChange:(id<UITextInput>)textInput {
     [super textDidChange:textInput];
+    [self dismissSettingsHelpIfDocumentChanged];
     self.hasHostConnection = YES;
     [self reconcileLiteralFallbackDocument];
     [self reconcileCompositionDocument];
@@ -155,12 +192,14 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 
 - (void)selectionWillChange:(id<UITextInput>)textInput {
     [super selectionWillChange:textInput];
+    [self dismissSettingsHelpIfDocumentChanged];
     [self reconcileLiteralFallbackDocument];
     [self clearComposingState];
 }
 
 - (void)selectionDidChange:(id<UITextInput>)textInput {
     [super selectionDidChange:textInput];
+    [self dismissSettingsHelpIfDocumentChanged];
     [self reconcileLiteralFallbackDocument];
     [self clearComposingState];
     [self handleSensitiveFieldIfNeeded];
@@ -273,6 +312,9 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 #pragma mark - Input Handling
 
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didPressKeyCode:(NSInteger)keyCode output:(NSString *)output {
+    if (keyCode != FSHKeyCodeSettings) {
+        [self dismissSettingsHelp];
+    }
     [self reconcileLiteralFallbackDocument];
     [self reconcileCompositionDocument];
     BOOL wasInSensitiveField = self.isInSensitiveField;
@@ -341,6 +383,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 }
 
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didReceiveInputModeEvent:(UIEvent *)event fromView:(UIView *)view {
+    [self dismissSettingsHelp];
     self.lastShiftTapDate = nil;
     [self handleInputModeListFromView:view withEvent:event];
 }
@@ -396,6 +439,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didBeginPressKeyCode:(NSInteger)keyCode output:(NSString *)output {
     if (keyCode == FSHKeyCodeDelete) {
+        [self dismissSettingsHelp];
         self.lastShiftTapDate = nil;
         if ([self reconcileCompositionDocument]) {
             return;
@@ -736,6 +780,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 #pragma mark - Candidate Bar Delegate
 
 - (void)candidateBarViewDidTapRawBuffer:(FSHCandidateBarView *)barView {
+    [self dismissSettingsHelp];
     self.lastShiftTapDate = nil;
     if ([self reconcileCompositionDocument]) {
         return;
@@ -747,6 +792,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 }
 
 - (void)candidateBarView:(FSHCandidateBarView *)barView didSelectCandidateAtIndex:(NSUInteger)index {
+    [self dismissSettingsHelp];
     self.lastShiftTapDate = nil;
     if ([self reconcileCompositionDocument]) {
         return;
@@ -866,9 +912,27 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 }
 
 - (void)openSettings {
-    NSURL *url = [NSURL URLWithString:@"freeshiamy://settings"];
-    if (url) {
-        [self.extensionContext openURL:url completionHandler:nil];
+    self.settingsHelpDocumentIdentifier = self.textDocumentProxy.documentIdentifier;
+    BOOL shouldAnnounce = self.settingsHelpBanner.hidden;
+    self.settingsHelpBanner.hidden = NO;
+    self.candidateBar.accessibilityElementsHidden = YES;
+    [self.view bringSubviewToFront:self.settingsHelpBanner];
+    if (shouldAnnounce) {
+        UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, self.settingsHelpBanner.accessibilityLabel);
+    }
+}
+
+- (void)dismissSettingsHelp {
+    self.settingsHelpBanner.hidden = YES;
+    self.candidateBar.accessibilityElementsHidden = NO;
+    self.settingsHelpDocumentIdentifier = nil;
+}
+
+- (void)dismissSettingsHelpIfDocumentChanged {
+    NSUUID *current = self.textDocumentProxy.documentIdentifier;
+    if (!self.settingsHelpBanner.hidden && self.settingsHelpDocumentIdentifier != current &&
+        ![self.settingsHelpDocumentIdentifier isEqual:current]) {
+        [self dismissSettingsHelp];
     }
 }
 

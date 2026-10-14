@@ -817,6 +817,137 @@ static id FSHFixtureDefaults;
     }
 }
 
+- (void)testModeAndHideKeysExposeVisibleAlternateActionsWithoutClipping {
+    FSHKeyboardView *keyboard = [[FSHKeyboardView alloc] initWithFrame:CGRectMake(0, 0, 320, 194.4)];
+    for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious),
+                              @(FSHKeyboardLayoutOriginal), @(FSHKeyboardLayoutOriginalNoNumber)]) {
+        keyboard.layout = layout.integerValue;
+        for (NSNumber *mode in @[@(FSHKeyboardModeLetters), @(FSHKeyboardModeSymbols),
+                                @(FSHKeyboardModeSymbolsShift), @(FSHKeyboardModeEmoji)]) {
+            keyboard.mode = mode.integerValue;
+            for (NSNumber *showsGlobe in @[@NO, @YES]) {
+                keyboard.showsGlobe = showsGlobe.boolValue;
+                [keyboard layoutIfNeeded];
+                FSHKeyButton *modeButton = [keyboard valueForKey:@"modeButton"];
+                FSHKeyButton *hideButton = nil;
+                for (NSArray<FSHKeyButton *> *row in [keyboard valueForKey:@"rowButtons"]) {
+                    for (FSHKeyButton *button in row) {
+                        if (button.keyCode == FSHKeyCodeCancel) {
+                            hideButton = button;
+                        }
+                    }
+                }
+                XCTAssertNotNil(modeButton);
+                XCTAssertNotNil(hideButton);
+                XCTAssertEqualObjects(modeButton.alternateHint, @"🙂");
+                XCTAssertEqualObjects(hideButton.alternateHint, @"⚙︎");
+                XCTAssertEqualObjects([hideButton titleForState:UIControlStateNormal], @"⌄");
+                XCTAssertEqualObjects(hideButton.accessibilityLabel, @"收起鍵盤");
+                XCTAssertEqual(modeButton.accessibilityCustomActions.count, (NSUInteger)1);
+                XCTAssertEqual(hideButton.accessibilityCustomActions.count, (NSUInteger)1);
+                XCTAssertEqualObjects(modeButton.accessibilityCustomActions.firstObject.name, @"切換至表情符號鍵盤");
+                XCTAssertEqualObjects(hideButton.accessibilityCustomActions.firstObject.name, @"顯示設定位置");
+                for (FSHKeyButton *button in @[modeButton, hideButton]) {
+                    UILabel *hint = [button valueForKey:@"alternateHintLabel"];
+                    XCTAssertNotNil(hint);
+                    XCTAssertFalse(CGRectIsEmpty(hint.frame));
+                    XCTAssertFalse(CGRectIsEmpty(button.titleLabel.frame));
+                    XCTAssertFalse(CGRectIntersectsRect(button.titleLabel.frame, hint.frame),
+                                   @"Primary/hint overlap: layout %@ mode %@ globe %@ key %@ title %@ hint %@",
+                                   layout, mode, showsGlobe, button.accessibilityIdentifier,
+                                   NSStringFromCGRect(button.titleLabel.frame), NSStringFromCGRect(hint.frame));
+                    XCTAssertGreaterThanOrEqual(CGRectGetMinX(hint.frame), 0.0);
+                    XCTAssertLessThanOrEqual(CGRectGetMaxX(hint.frame), CGRectGetWidth(button.bounds) + 0.5);
+                    XCTAssertGreaterThanOrEqual(CGRectGetMinX(button.titleLabel.frame), -0.5);
+                    XCTAssertGreaterThanOrEqual(CGRectGetMinY(button.titleLabel.frame), -0.5);
+                    XCTAssertLessThanOrEqual(CGRectGetMaxX(button.titleLabel.frame), CGRectGetWidth(button.bounds) + 0.5);
+                    XCTAssertLessThanOrEqual(CGRectGetMaxY(button.titleLabel.frame), CGRectGetHeight(button.bounds) + 0.5);
+                    XCTAssertTrue(((UILongPressGestureRecognizer *)button.gestureRecognizers.firstObject).cancelsTouchesInView);
+                }
+            }
+        }
+    }
+}
+
+- (void)testAccessibleSettingsInstructionPreservesCompositionAndCandidates {
+    FSHShiamyEngine *engine = [[FSHShiamyEngine alloc] init];
+    NSError *error = nil;
+    XCTAssertTrue([engine loadFromBundle:[NSBundle mainBundle] error:&error], @"%@", error);
+    [self.controller setValue:engine forKey:@"engine"];
+    [self.controller setValue:@1 forKey:@"engineLoadState"];
+    [[self rawBuffer] setString:@"a"];
+    [self.controller refreshCandidatesAndUI];
+    FSHCandidateBarView *bar = [self.controller valueForKey:@"candidateBar"];
+    NSArray<FSHCandidate *> *before = [self.controller valueForKey:@"candidates"];
+    XCTAssertGreaterThan(before.count, (NSUInteger)10);
+    BOOL wasExpanded = bar.isExpanded;
+    XCTAssertFalse(wasExpanded);
+
+    FSHKeyButton *hide = nil;
+    for (NSArray<FSHKeyButton *> *row in [self.keyboard valueForKey:@"rowButtons"]) {
+        for (FSHKeyButton *button in row) {
+            if (button.keyCode == FSHKeyCodeCancel) {
+                hide = button;
+            }
+        }
+    }
+    XCTAssertNotNil(hide);
+    UIAccessibilityCustomAction *settings = hide.accessibilityCustomActions.firstObject;
+    XCTAssertTrue(settings.actionHandler(settings));
+    UIButton *banner = [self.controller valueForKey:@"settingsHelpBanner"];
+    XCTAssertFalse(banner.hidden);
+    XCTAssertTrue(bar.accessibilityElementsHidden);
+    XCTAssertEqualObjects(banner.accessibilityIdentifier, @"settingsHelpBanner");
+    XCTAssertTrue([banner.accessibilityLabel containsString:@"FreeShiamy App"]);
+    XCTAssertEqualObjects([self rawBuffer], @"a");
+    XCTAssertEqual([self.controller valueForKey:@"candidates"], before);
+    XCTAssertEqual(bar.isExpanded, wasExpanded);
+    XCTAssertEqualObjects(self.proxy.text, @"");
+    XCTAssertEqual(self.controller.dismissCount, (NSUInteger)0);
+
+    [banner sendActionsForControlEvents:UIControlEventTouchUpInside];
+    XCTAssertTrue(banner.hidden);
+    XCTAssertFalse(bar.accessibilityElementsHidden);
+    XCTAssertEqualObjects([self rawBuffer], @"a");
+    [bar setExpanded:YES];
+    XCTAssertTrue(bar.isExpanded);
+    XCTAssertTrue(settings.actionHandler(settings));
+    XCTAssertFalse(banner.hidden);
+    XCTAssertTrue(bar.accessibilityElementsHidden);
+    XCTAssertTrue(bar.isExpanded);
+    XCTAssertEqual([self.controller valueForKey:@"candidates"], before);
+    [self.controller candidateBarViewDidTapRawBuffer:bar];
+    XCTAssertTrue(banner.hidden);
+    XCTAssertFalse(bar.accessibilityElementsHidden);
+    XCTAssertEqualObjects(self.proxy.text, @"a");
+    XCTAssertEqualObjects([self rawBuffer], @"");
+
+    self.proxy.documentIdentifier = nil;
+    XCTAssertTrue(settings.actionHandler(settings));
+    XCTAssertFalse(banner.hidden);
+    [self.controller textDidChange:nil];
+    XCTAssertFalse(banner.hidden); // Two unknown document IDs are still equal.
+    self.proxy.documentIdentifier = [NSUUID UUID];
+    [self.controller textDidChange:nil];
+    XCTAssertTrue(banner.hidden);
+    XCTAssertFalse(bar.accessibilityElementsHidden);
+    XCTAssertTrue(settings.actionHandler(settings));
+    [self.controller beginAppearanceTransition:NO animated:NO];
+    [self.controller endAppearanceTransition];
+    XCTAssertTrue(banner.hidden);
+    XCTAssertFalse(bar.accessibilityElementsHidden);
+}
+
+- (void)testAccessibleModeAlternateChangesToEmojiOnce {
+    FSHKeyButton *mode = [self.keyboard valueForKey:@"modeButton"];
+    UIAccessibilityCustomAction *emoji = mode.accessibilityCustomActions.firstObject;
+    XCTAssertNotNil(emoji);
+    XCTAssertTrue(emoji.actionHandler(emoji));
+    XCTAssertEqual(self.keyboard.mode, FSHKeyboardModeEmoji);
+    XCTAssertEqualObjects(self.proxy.text, @"");
+    XCTAssertEqual(self.controller.dismissCount, (NSUInteger)0);
+}
+
 - (void)testBothSymbolPagesRetainUniqueSymbolsAndAddMissingPunctuation {
     NSMutableSet<NSString *> *allOutputs = [NSMutableSet set];
     for (NSNumber *mode in @[@(FSHKeyboardModeSymbols), @(FSHKeyboardModeSymbolsShift)]) {
@@ -1232,6 +1363,27 @@ static id FSHFixtureDefaults;
             [self addAttachment:attachment];
         }
     }
+    keyboard.mode = FSHKeyboardModeLetters;
+    [controller keyboardView:keyboard didPressKeyCode:FSHKeyCodeSettings output:nil];
+    UIButton *settingsHelp = [controller valueForKey:@"settingsHelpBanner"];
+    XCTAssertFalse(settingsHelp.hidden);
+    XCTAssertEqualObjects(raw, @"ci");
+    XCTAssertEqual(candidateStack.arrangedSubviews.firstObject, firstCandidate);
+    for (NSNumber *style in @[@(UIUserInterfaceStyleLight), @(UIUserInterfaceStyleDark)]) {
+        window.overrideUserInterfaceStyle = style.integerValue;
+        [window layoutIfNeeded];
+        UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithBounds:window.bounds];
+        UIImage *snapshot = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+            [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
+        }];
+        XCTAttachment *attachment = [XCTAttachment attachmentWithImage:snapshot];
+        attachment.name = [NSString stringWithFormat:@"Settings help over active candidates - %@",
+                           style.integerValue == UIUserInterfaceStyleDark ? @"dark" : @"light"];
+        attachment.lifetime = XCTAttachmentLifetimeKeepAlways;
+        [self addAttachment:attachment];
+    }
+    [settingsHelp sendActionsForControlEvents:UIControlEventTouchUpInside];
+    XCTAssertTrue(settingsHelp.hidden);
     window.frame = CGRectMake(0.0, 0.0, 320.0, 390.0);
     keyboard.mode = FSHKeyboardModeEmoji;
     window.overrideUserInterfaceStyle = UIUserInterfaceStyleLight;
@@ -1247,6 +1399,32 @@ static id FSHFixtureDefaults;
     compactAttachment.name = @"Production keyboard host harness emoji - compact 320x390";
     compactAttachment.lifetime = XCTAttachmentLifetimeKeepAlways;
     [self addAttachment:compactAttachment];
+    [controller keyboardView:keyboard didPressKeyCode:FSHKeyCodeSettings output:nil];
+    XCTAssertFalse(settingsHelp.hidden);
+    XCTAssertEqualObjects(raw, @"ci");
+    XCTAssertEqual(candidateStack.arrangedSubviews.firstObject, firstCandidate);
+    for (NSNumber *style in @[@(UIUserInterfaceStyleLight), @(UIUserInterfaceStyleDark)]) {
+        window.overrideUserInterfaceStyle = style.integerValue;
+        [window layoutIfNeeded];
+        XCTAssertEqualWithAccuracy(CGRectGetWidth(settingsHelp.bounds), 320.0, 1.0);
+        XCTAssertLessThanOrEqual(CGRectGetMaxY(settingsHelp.frame), CGRectGetMinY(keyboard.frame) + 0.5,
+                                 @"Settings notice overlaps keyboard: notice %@, keyboard %@",
+                                 NSStringFromCGRect(settingsHelp.frame), NSStringFromCGRect(keyboard.frame));
+        XCTAssertLessThanOrEqual(CGRectGetHeight(settingsHelp.bounds), bar.barHeight + 0.5);
+        UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithBounds:window.bounds];
+        __block BOOL rendered = NO;
+        UIImage *snapshot = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+            rendered = [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
+        }];
+        XCTAssertTrue(rendered);
+        XCTAttachment *attachment = [XCTAttachment attachmentWithImage:snapshot];
+        attachment.name = [NSString stringWithFormat:@"Settings help with active candidates - compact 320 - %@",
+                           style.integerValue == UIUserInterfaceStyleDark ? @"dark" : @"light"];
+        attachment.lifetime = XCTAttachmentLifetimeKeepAlways;
+        [self addAttachment:attachment];
+    }
+    [settingsHelp sendActionsForControlEvents:UIControlEventTouchUpInside];
+    XCTAssertTrue(settingsHelp.hidden);
     [window endEditing:YES];
     window.hidden = YES;
     [oldKeyWindow makeKeyAndVisible];

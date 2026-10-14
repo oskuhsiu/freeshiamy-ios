@@ -21,6 +21,12 @@
 @property (nonatomic, strong) FSHKeyButton *emojiButton;
 @property (nonatomic, assign) BOOL deleteIsPressed;
 
+- (void)configureAlternateActionForButton:(FSHKeyButton *)button
+                                     hint:(NSString *)hint
+                                   prompt:(NSString *)prompt
+                                  keyCode:(NSInteger)keyCode
+                                   output:(nullable NSString *)output;
+
 @end
 
 @implementation FSHKeyboardView
@@ -237,7 +243,7 @@
         [row4 addObject:[self key:@"⌫" output:nil code:FSHKeyCodeDelete weight:1.5 special:YES]];
         [row4 addObject:[self key:@"送出" output:nil code:FSHKeyCodeEnter weight:1.5 special:YES]];
     } else {
-        [row4 addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.5 special:YES]];
+        [row4 addObject:[self key:@"⌄" output:nil code:FSHKeyCodeCancel weight:1.5 special:YES]];
         CGFloat modeWeight = 1.5;
         [row4 addObject:[self key:@"123" output:nil code:FSHKeyCodeModeChange weight:modeWeight special:YES]];
         if (self.showsGlobe) {
@@ -282,7 +288,7 @@
     [rows addObject:symbols2];
 
     NSMutableArray<FSHKeyDescriptor *> *bottom = [NSMutableArray array];
-    [bottom addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.0 special:YES]];
+    [bottom addObject:[self key:@"⌄" output:nil code:FSHKeyCodeCancel weight:1.0 special:YES]];
     CGFloat modeWeight = 1.5;
     [bottom addObject:[self key:@"ABC" output:nil code:FSHKeyCodeModeChange weight:modeWeight special:YES]];
     if (self.showsGlobe) {
@@ -321,7 +327,7 @@
     }
 
     NSMutableArray<FSHKeyDescriptor *> *bottom = [NSMutableArray array];
-    [bottom addObject:[self key:@"Done" output:nil code:FSHKeyCodeCancel weight:1.0 special:YES]];
+    [bottom addObject:[self key:@"⌄" output:nil code:FSHKeyCodeCancel weight:1.0 special:YES]];
     CGFloat modeWeight = 1.5;
     [bottom addObject:[self key:@"ABC" output:nil code:FSHKeyCodeModeChange weight:modeWeight special:YES]];
     if (self.showsGlobe) {
@@ -395,13 +401,23 @@
     if (descriptor.keyCode == FSHKeyCodeModeChange) {
         UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleModeLongPress:)];
         longPress.minimumPressDuration = 0.4;
+        longPress.cancelsTouchesInView = YES;
         [button addGestureRecognizer:longPress];
+        button.accessibilityIdentifier = @"key.mode";
+        button.accessibilityLabel = (self.mode == FSHKeyboardModeLetters) ? @"切換至符號鍵盤" : @"切換至字母鍵盤";
+        [self configureAlternateActionForButton:button hint:@"🙂" prompt:@"切換至表情符號鍵盤"
+                                        keyCode:FSHKeyCodeEmoji output:nil];
         self.modeButton = button;
     }
     if (descriptor.keyCode == FSHKeyCodeCancel) {
         UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleDoneLongPress:)];
         longPress.minimumPressDuration = 0.4;
+        longPress.cancelsTouchesInView = YES;
         [button addGestureRecognizer:longPress];
+        button.accessibilityIdentifier = @"key.hide";
+        button.accessibilityLabel = @"收起鍵盤";
+        [self configureAlternateActionForButton:button hint:@"⚙︎" prompt:@"顯示設定位置"
+                                        keyCode:FSHKeyCodeSettings output:nil];
     }
     if (descriptor.keyCode == FSHKeyCodeShift) {
         self.shiftButton = button;
@@ -415,6 +431,26 @@
         button.contentEdgeInsets = UIEdgeInsetsMake(6, 0, 0, 0);
     }
     return button;
+}
+
+- (void)configureAlternateActionForButton:(FSHKeyButton *)button
+                                     hint:(NSString *)hint
+                                   prompt:(NSString *)prompt
+                                  keyCode:(NSInteger)keyCode
+                                   output:(NSString *)output {
+    button.alternateHint = hint;
+    button.accessibilityHint = [NSString stringWithFormat:@"長按%@", prompt];
+    __weak typeof(self) weakSelf = self;
+    button.accessibilityCustomActions = @[
+        [[UIAccessibilityCustomAction alloc] initWithName:prompt actionHandler:^BOOL(UIAccessibilityCustomAction *action) {
+            typeof(self) strongSelf = weakSelf;
+            if (!strongSelf) {
+                return NO;
+            }
+            [strongSelf.delegate keyboardView:strongSelf didPressKeyCode:keyCode output:output];
+            return YES;
+        }]
+    ];
 }
 
 - (void)layoutSubviews {

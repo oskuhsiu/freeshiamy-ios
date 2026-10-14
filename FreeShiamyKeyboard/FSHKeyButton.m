@@ -1,6 +1,44 @@
 #import "FSHKeyButton.h"
 
+@interface FSHKeyButton ()
+@property (nonatomic, strong) UILabel *alternateHintLabel;
+@end
+
 @implementation FSHKeyButton
+
+- (void)setAlternateHint:(NSString *)alternateHint {
+    _alternateHint = [alternateHint copy];
+    if (_alternateHint.length == 0) {
+        [self.alternateHintLabel removeFromSuperview];
+        self.alternateHintLabel = nil;
+        return;
+    }
+    if (!self.alternateHintLabel) {
+        UILabel *label = [[UILabel alloc] initWithFrame:CGRectZero];
+        label.font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightSemibold];
+        label.textColor = [UIColor secondaryLabelColor];
+        label.textAlignment = NSTextAlignmentRight;
+        label.isAccessibilityElement = NO;
+        self.alternateHintLabel = label;
+        [self addSubview:label];
+    }
+    self.alternateHintLabel.text = _alternateHint;
+    self.titleLabel.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightRegular];
+    self.titleLabel.adjustsFontSizeToFitWidth = YES;
+    self.titleLabel.minimumScaleFactor = 0.8;
+    self.contentVerticalAlignment = UIControlContentVerticalAlignmentBottom;
+    self.contentEdgeInsets = UIEdgeInsetsMake(0.0, 1.0, 2.0, 1.0);
+    [self setNeedsLayout];
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    if (self.alternateHintLabel) {
+        CGFloat width = MIN(16.0, MAX(0.0, CGRectGetWidth(self.bounds) - 2.0));
+        self.alternateHintLabel.frame = CGRectMake(MAX(0.0, CGRectGetWidth(self.bounds) - width - 2.0),
+                                                   1.0, width, MIN(12.0, CGRectGetHeight(self.bounds)));
+    }
+}
 
 - (BOOL)accessibilityActivate {
     if (self.accessibilityActivationHandler) {

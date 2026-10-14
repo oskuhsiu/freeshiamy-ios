@@ -9,6 +9,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL isSpecial;
 @property (nonatomic, assign) CGFloat weight;
 @property (nonatomic, copy, nullable) void (^accessibilityActivationHandler)(void);
+@property (nonatomic, copy, nullable) NSString *alternateHint;
 
 @end
 
