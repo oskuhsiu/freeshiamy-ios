@@ -306,13 +306,19 @@
         [self waitForSeconds:0.25];
         XCTAssertEqualObjects(self.proxy.text, afterCancel);
 
+        FSHKeyboardView *geometryKeyboard = [[FSHKeyboardView alloc] initWithFrame:CGRectMake(0.0, 0.0, 320.0, 216.0)];
+        geometryKeyboard.showsGlobe = globe.boolValue;
+        geometryKeyboard.mode = FSHKeyboardModeEmoji;
         for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious),
                                   @(FSHKeyboardLayoutOriginal), @(FSHKeyboardLayoutOriginalNoNumber)]) {
-            self.keyboard.layout = layout.integerValue;
+            geometryKeyboard.layout = layout.integerValue;
             for (NSNumber *width in @[@320.0, @375.0, @393.0, @768.0]) {
-                self.keyboard.frame = CGRectMake(0.0, 0.0, width.doubleValue, 216.0);
-                [self.keyboard layoutIfNeeded];
-                FSHKeyButton *laidOutDelete = [self.keyboard valueForKey:@"deleteButton"];
+                geometryKeyboard.frame = CGRectMake(0.0, 0.0, width.doubleValue, 216.0);
+                [geometryKeyboard setNeedsLayout];
+                [geometryKeyboard layoutIfNeeded];
+                XCTAssertEqualWithAccuracy(CGRectGetWidth(geometryKeyboard.bounds), width.doubleValue, 0.5,
+                                           @"Standalone keyboard fixture bounds: %@", NSStringFromCGRect(geometryKeyboard.bounds));
+                FSHKeyButton *laidOutDelete = [geometryKeyboard valueForKey:@"deleteButton"];
                 XCTAssertNotNil(laidOutDelete);
                 XCTAssertGreaterThanOrEqual(laidOutDelete.frame.size.width, 25.0, @"Layout %@ width %@ globe %@",
                                             layout, width, globe);
@@ -384,20 +390,24 @@
 }
 
 - (void)testOriginalLayoutsFillTheirAvailableHeight {
+    FSHKeyboardView *geometryKeyboard = [[FSHKeyboardView alloc] initWithFrame:CGRectMake(0.0, 0.0, 375.0, 180.0)];
     for (NSNumber *mode in @[@(FSHKeyboardModeLetters), @(FSHKeyboardModeSymbols),
                             @(FSHKeyboardModeSymbolsShift), @(FSHKeyboardModeEmoji)]) {
-        self.keyboard.mode = mode.integerValue;
+        geometryKeyboard.mode = mode.integerValue;
         for (NSNumber *layout in @[@(FSHKeyboardLayoutOriginal), @(FSHKeyboardLayoutOriginalNoNumber),
                                   @(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious)]) {
-            self.keyboard.layout = layout.integerValue;
+            geometryKeyboard.layout = layout.integerValue;
             CGFloat expectedGap = (layout.integerValue == FSHKeyboardLayoutOriginal ||
                                    layout.integerValue == FSHKeyboardLayoutOriginalNoNumber) ? 1.0 : 6.0;
             for (NSNumber *showNumbers in @[@NO, @YES]) {
-                self.keyboard.showNumberRow = showNumbers.boolValue;
+                geometryKeyboard.showNumberRow = showNumbers.boolValue;
                 for (NSNumber *height in @[@180.0, @216.0, @300.0]) {
-                    self.keyboard.frame = CGRectMake(0.0, 0.0, 375.0, height.doubleValue);
-                    [self.keyboard layoutIfNeeded];
-                    NSArray<NSArray<FSHKeyButton *> *> *rows = [self.keyboard valueForKey:@"rowButtons"];
+                    geometryKeyboard.frame = CGRectMake(0.0, 0.0, 375.0, height.doubleValue);
+                    [geometryKeyboard setNeedsLayout];
+                    [geometryKeyboard layoutIfNeeded];
+                    XCTAssertEqualWithAccuracy(CGRectGetHeight(geometryKeyboard.bounds), height.doubleValue, 0.5,
+                                               @"Standalone keyboard fixture bounds: %@", NSStringFromCGRect(geometryKeyboard.bounds));
+                    NSArray<NSArray<FSHKeyButton *> *> *rows = [geometryKeyboard valueForKey:@"rowButtons"];
                     XCTAssertGreaterThan(rows.count, (NSUInteger)0);
                     CGFloat previousBottom = 0.0;
                     for (NSUInteger rowIndex = 0; rowIndex < rows.count; rowIndex++) {
@@ -420,33 +430,49 @@
 
 - (void)testHiddenMoreButtonGivesItsWidthBackToCandidates {
     FSHCandidateBarView *bar = [[FSHCandidateBarView alloc] initWithFrame:CGRectMake(0.0, 0.0, 375.0, 37.5)];
-    CGFloat fullWidth = 0.0;
+    UIView *host = [[UIView alloc] initWithFrame:CGRectMake(0.0, 0.0, 375.0, bar.barHeight)];
+    [host addSubview:bar];
+    [NSLayoutConstraint activateConstraints:@[
+        [bar.leadingAnchor constraintEqualToAnchor:host.leadingAnchor],
+        [bar.trailingAnchor constraintEqualToAnchor:host.trailingAnchor],
+        [bar.topAnchor constraintEqualToAnchor:host.topAnchor],
+        [bar.bottomAnchor constraintEqualToAnchor:host.bottomAnchor],
+    ]];
     for (NSNumber *count in @[@1, @10, @11, @1]) {
         NSMutableArray<FSHCandidate *> *candidates = [NSMutableArray array];
         for (NSUInteger index = 0; index < count.unsignedIntegerValue; index++) {
             [candidates addObject:[[FSHCandidate alloc] initWithCode:@"a" value:[NSString stringWithFormat:@"候%lu", (unsigned long)index]]];
         }
         [bar updateRawBuffer:@"a" candidates:candidates exactCount:1 inlineLimit:10 moreLimit:50 hintText:nil];
+        [host layoutIfNeeded];
         [bar layoutIfNeeded];
+        XCTAssertEqualWithAccuracy(CGRectGetWidth(bar.bounds), 375.0, 0.5,
+                                   @"Pinned candidate bar fixture bounds: %@", NSStringFromCGRect(bar.bounds));
         UIView *area = [bar valueForKey:@"candidateArea"];
         UIScrollView *scroll = [bar valueForKey:@"scrollView"];
         UIButton *more = [bar valueForKey:@"moreButton"];
+        UIButton *raw = [bar valueForKey:@"rawButton"];
+        NSString *geometry = [NSString stringWithFormat:@"count %@ bar %@ raw %@ area %@ scroll %@ More %@",
+                              count, NSStringFromCGRect(bar.bounds), NSStringFromCGRect(raw.frame),
+                              NSStringFromCGRect(area.frame), NSStringFromCGRect(scroll.frame),
+                              NSStringFromCGRect(more.frame)];
+        XCTAssertGreaterThan(CGRectGetWidth(raw.bounds), 0.0, @"%@", geometry);
+        XCTAssertGreaterThan(CGRectGetWidth(area.bounds), 0.0, @"%@", geometry);
         NSLayoutConstraint *withMore = [bar valueForKey:@"scrollTrailingWithMore"];
         NSLayoutConstraint *withoutMore = [bar valueForKey:@"scrollTrailingWithoutMore"];
         XCTAssertNotEqual(withMore.active, withoutMore.active);
         XCTAssertEqual(withMore.active, !more.hidden);
         if (count.unsignedIntegerValue <= 10) {
             XCTAssertTrue(more.hidden);
-            XCTAssertEqualWithAccuracy(CGRectGetMaxX(scroll.frame), CGRectGetWidth(area.bounds), 0.5);
-            if (fullWidth == 0.0) {
-                fullWidth = CGRectGetWidth(scroll.frame);
-            } else {
-                XCTAssertEqualWithAccuracy(CGRectGetWidth(scroll.frame), fullWidth, 0.5);
-            }
+            XCTAssertEqualWithAccuracy(CGRectGetMaxX(scroll.frame), CGRectGetWidth(area.bounds), 0.5, @"%@", geometry);
+            XCTAssertEqualWithAccuracy(CGRectGetWidth(area.bounds) - CGRectGetWidth(scroll.frame), 0.0, 0.5,
+                                       @"%@", geometry);
         } else {
             XCTAssertFalse(more.hidden);
-            XCTAssertEqualWithAccuracy(CGRectGetMaxX(scroll.frame), CGRectGetMinX(more.frame) - 4.0, 0.5);
-            XCTAssertEqualWithAccuracy(fullWidth - CGRectGetWidth(scroll.frame), 36.0, 0.5);
+            XCTAssertEqualWithAccuracy(CGRectGetMaxX(scroll.frame), CGRectGetMinX(more.frame) - 4.0, 0.5,
+                                       @"%@", geometry);
+            XCTAssertEqualWithAccuracy(CGRectGetWidth(area.bounds) - CGRectGetWidth(scroll.frame), 36.0, 0.5,
+                                       @"%@", geometry);
         }
     }
 }
