@@ -184,6 +184,16 @@
     [self waitForExpectations:@[elapsed] timeout:seconds + 1.0];
 }
 
+- (BOOL)waitForView:(UIView *)view toAttachToWindow:(UIWindow *)window {
+    [window layoutIfNeeded];
+    NSPredicate *attachedPredicate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        [window layoutIfNeeded];
+        return view.window == window && !CGRectIsEmpty(view.bounds);
+    }];
+    XCTNSPredicateExpectation *attached = [[XCTNSPredicateExpectation alloc] initWithPredicate:attachedPredicate object:view];
+    return [XCTWaiter waitForExpectations:@[attached] timeout:5.0] == XCTWaiterResultCompleted;
+}
+
 - (void)testTapDeletesHostExactlyOnce {
     [self.proxy.text setString:@"abc"];
     [self tapDelete];
@@ -479,6 +489,8 @@
     window.frame = activeScene.coordinateSpace.bounds;
     window.rootViewController = host;
     [window makeKeyAndVisible];
+    XCTAssertTrue([self waitForView:controller.view toAttachToWindow:window],
+                  @"The keyboard host view should attach to its scene-backed window");
     XCTAssertEqual(controller.view.window, window);
 
     FSHShiamyEngine *engine = [[FSHShiamyEngine alloc] init];
@@ -545,6 +557,7 @@
     compactAttachment.name = @"Production keyboard host harness emoji - compact 320x390";
     compactAttachment.lifetime = XCTAttachmentLifetimeKeepAlways;
     [self addAttachment:compactAttachment];
+    [window endEditing:YES];
     window.hidden = YES;
     [oldKeyWindow makeKeyAndVisible];
 }
@@ -731,10 +744,49 @@
     XCTAssertEqualObjects(self.proxy.text, @"host");
     XCTAssertEqualObjects([self rawBuffer], @"");
 
+    NSUInteger advancesBeforeGlobe = self.controller.inputModeAdvanceCount;
+    NSUInteger dismissalsBeforeGlobe = self.controller.dismissCount;
     [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeGlobe output:nil];
-    XCTAssertEqual(self.controller.inputModeAdvanceCount, (NSUInteger)1);
+    XCTAssertEqual(self.controller.inputModeAdvanceCount, advancesBeforeGlobe + 1);
+    XCTAssertEqual(self.controller.dismissCount, dismissalsBeforeGlobe);
+    NSUInteger advancesBeforeCancel = self.controller.inputModeAdvanceCount;
+    NSUInteger dismissalsBeforeCancel = self.controller.dismissCount;
     [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeCancel output:nil];
-    XCTAssertEqual(self.controller.dismissCount, (NSUInteger)1);
+    XCTAssertEqual(self.controller.inputModeAdvanceCount, advancesBeforeCancel);
+    XCTAssertEqual(self.controller.dismissCount, dismissalsBeforeCancel + 1);
+    XCTAssertEqualObjects(self.proxy.text, @"host");
+}
+
+- (void)testConnectedSecureTransitionSwitchesAndDismissesOnlyOnce {
+    [self.controller setValue:@YES forKey:@"disableIMEInSensitive"];
+    [self.proxy.text setString:@"host"];
+    [self.controller textDidChange:nil];
+    NSUInteger initialAdvances = self.controller.inputModeAdvanceCount;
+    NSUInteger initialDismissals = self.controller.dismissCount;
+
+    self.proxy.secureTextEntry = YES;
+    [self.controller textDidChange:nil];
+    XCTAssertEqual(self.controller.inputModeAdvanceCount, initialAdvances + 1);
+    XCTAssertEqual(self.controller.dismissCount, initialDismissals + 1);
+    XCTAssertEqualObjects(self.proxy.text, @"host");
+    [self.controller textWillChange:nil];
+    [self.controller selectionDidChange:nil];
+    [self.controller textDidChange:nil];
+    XCTAssertEqual(self.controller.inputModeAdvanceCount, initialAdvances + 1);
+    XCTAssertEqual(self.controller.dismissCount, initialDismissals + 1);
+
+    [self.controller keyboardView:self.keyboard didPressKeyCode:0 output:@"a"];
+    XCTAssertEqualObjects(self.proxy.text, @"host");
+    NSUInteger advancesBeforeGlobe = self.controller.inputModeAdvanceCount;
+    NSUInteger dismissalsBeforeGlobe = self.controller.dismissCount;
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeGlobe output:nil];
+    XCTAssertEqual(self.controller.inputModeAdvanceCount, advancesBeforeGlobe + 1);
+    XCTAssertEqual(self.controller.dismissCount, dismissalsBeforeGlobe);
+    NSUInteger advancesBeforeCancel = self.controller.inputModeAdvanceCount;
+    NSUInteger dismissalsBeforeCancel = self.controller.dismissCount;
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeCancel output:nil];
+    XCTAssertEqual(self.controller.inputModeAdvanceCount, advancesBeforeCancel);
+    XCTAssertEqual(self.controller.dismissCount, dismissalsBeforeCancel + 1);
     XCTAssertEqualObjects(self.proxy.text, @"host");
 }
 
@@ -1011,6 +1063,8 @@
     window.rootViewController = navigation;
     [window makeKeyAndVisible];
     [search loadViewIfNeeded];
+    XCTAssertTrue([self waitForView:search.view toAttachToWindow:window],
+                  @"The code-search view should attach to its scene-backed window");
     XCTAssertEqual(search.view.window, window);
     NSPredicate *loadedPredicate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
         return [search valueForKey:@"engine"] != nil || [search valueForKey:@"loadErrorDescription"] != nil;
@@ -1093,6 +1147,7 @@
     compactAttachment.lifetime = XCTAttachmentLifetimeKeepAlways;
     [self addAttachment:compactAttachment];
     [queryField resignFirstResponder];
+    [window endEditing:YES];
     window.hidden = YES;
     [oldKeyWindow makeKeyAndVisible];
 }
