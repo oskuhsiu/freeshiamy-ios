@@ -707,7 +707,15 @@ static id FSHFixtureDefaults;
                                     XCTAssertEqual([keyboard hitTest:CGPointMake(boundary - 0.05, midY) withEvent:nil], button);
                                     XCTAssertEqual([keyboard hitTest:CGPointMake(boundary + 0.05, midY) withEvent:nil], next);
                                     UIView *owner = [keyboard hitTest:CGPointMake(boundary, midY) withEvent:nil];
-                                    XCTAssertTrue(owner == button || owner == next);
+                                    XCTAssertTrue(owner == button || owner == next,
+                                                  @"Gap midpoint %.17g layout %@ mode %@ row %lu key %lu owner %@ left %@ right %@",
+                                                  boundary, layout, mode, (unsigned long)rowIndex, (unsigned long)index,
+                                                  owner, NSStringFromCGRect(button.frame), NSStringFromCGRect(next.frame));
+                                    if ([owner isKindOfClass:FSHKeyButton.class]) {
+                                        CGPoint localPoint = [keyboard convertPoint:CGPointMake(boundary, midY) toView:owner];
+                                        XCTAssertTrue([(FSHKeyButton *)owner pointInside:localPoint withEvent:nil],
+                                                      @"Hit owner must also accept tracking at shared edge");
+                                    }
                                 }
                             }
                         }
@@ -718,8 +726,18 @@ static id FSHFixtureDefaults;
                                 CGFloat boundary = CGRectGetMaxY(row.firstObject.frame) + gap * 0.5;
                                 UIView *upper = [keyboard hitTest:CGPointMake(160, boundary - 0.05) withEvent:nil];
                                 UIView *lower = [keyboard hitTest:CGPointMake(160, boundary + 0.05) withEvent:nil];
-                                XCTAssertTrue([row containsObject:upper]);
-                                XCTAssertTrue([nextRow containsObject:lower]);
+                                XCTAssertTrue([row containsObject:upper],
+                                              @"Upper row midpoint y %.17g layout %@ mode %@ owner %@", boundary, layout, mode, upper);
+                                XCTAssertTrue([nextRow containsObject:lower],
+                                              @"Lower row midpoint y %.17g layout %@ mode %@ owner %@", boundary, layout, mode, lower);
+                                if ([upper isKindOfClass:FSHKeyButton.class]) {
+                                    XCTAssertTrue([(FSHKeyButton *)upper pointInside:
+                                        [keyboard convertPoint:CGPointMake(160, boundary - 0.05) toView:upper] withEvent:nil]);
+                                }
+                                if ([lower isKindOfClass:FSHKeyButton.class]) {
+                                    XCTAssertTrue([(FSHKeyButton *)lower pointInside:
+                                        [keyboard convertPoint:CGPointMake(160, boundary + 0.05) toView:lower] withEvent:nil]);
+                                }
                             }
                         }
                     }
@@ -739,6 +757,74 @@ static id FSHFixtureDefaults;
                     delete.hidden = NO;
                     delete.userInteractionEnabled = NO;
                     XCTAssertNotEqual([keyboard hitTest:center withEvent:nil], delete);
+                }
+            }
+        }
+    }
+}
+
+- (void)testHiddenKeyboardKeyDoesNotDonateItsHitRegionToNeighbors {
+    FSHKeyboardView *keyboard = [[FSHKeyboardView alloc] initWithFrame:CGRectMake(0, 0, 320, 220)];
+    [keyboard layoutIfNeeded];
+    FSHKeyButton *q = [self keyWithOutput:@"q" inKeyboard:keyboard];
+    XCTAssertNotNil(q);
+    CGPoint center = q.center;
+    XCTAssertEqual([keyboard hitTest:center withEvent:nil], q);
+    q.hidden = YES;
+    XCTAssertEqual([keyboard hitTest:center withEvent:nil], keyboard);
+    q.hidden = NO;
+    q.userInteractionEnabled = NO;
+    XCTAssertEqual([keyboard hitTest:center withEvent:nil], keyboard);
+}
+
+- (void)testFractionalHitEdgesAndAdjacentRepresentablePointsHaveTrackingOwners {
+    for (NSNumber *width in @[@320, @375, @393]) {
+        for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious),
+                                  @(FSHKeyboardLayoutOriginal), @(FSHKeyboardLayoutOriginalNoNumber)]) {
+            for (NSNumber *mode in @[@(FSHKeyboardModeLetters), @(FSHKeyboardModeSymbols),
+                                    @(FSHKeyboardModeSymbolsShift), @(FSHKeyboardModeEmoji)]) {
+                FSHKeyboardView *keyboard = [[FSHKeyboardView alloc] initWithFrame:CGRectMake(0, 0, width.doubleValue, 220)];
+                keyboard.layout = layout.integerValue;
+                keyboard.mode = mode.integerValue;
+                [keyboard layoutIfNeeded];
+                NSArray<NSArray<FSHKeyButton *> *> *rows = [keyboard valueForKey:@"rowButtons"];
+                for (NSArray<FSHKeyButton *> *row in rows) {
+                    CGFloat y = CGRectGetMidY(row.firstObject.frame);
+                    for (NSUInteger index = 0; index + 1 < row.count; index++) {
+                        FSHKeyButton *left = row[index];
+                        FSHKeyButton *right = row[index + 1];
+                        CGFloat gap = CGRectGetMinX(right.frame) - CGRectGetMaxX(left.frame);
+                        if (gap <= 0.4) { continue; }
+                        CGFloat edge = CGRectGetMaxX(left.frame) + gap * 0.5;
+                        for (NSNumber *x in @[@(nextafter(edge, -INFINITY)), @(edge), @(nextafter(edge, INFINITY))]) {
+                            CGPoint point = CGPointMake(x.doubleValue, y);
+                            UIView *owner = [keyboard hitTest:point withEvent:nil];
+                            XCTAssertTrue(owner == left || owner == right,
+                                          @"Missing near-edge owner at x %.17g width %@ layout %@ mode %@ left %@ right %@",
+                                          point.x, width, layout, mode, NSStringFromCGRect(left.frame), NSStringFromCGRect(right.frame));
+                            if ([owner isKindOfClass:FSHKeyButton.class]) {
+                                XCTAssertTrue([(FSHKeyButton *)owner pointInside:[keyboard convertPoint:point toView:owner]
+                                                                      withEvent:nil], @"Hit owner must also track near-edge touch");
+                            }
+                        }
+                    }
+                }
+                for (NSUInteger index = 0; index + 1 < rows.count; index++) {
+                    NSArray<FSHKeyButton *> *upper = rows[index];
+                    NSArray<FSHKeyButton *> *lower = rows[index + 1];
+                    CGFloat edge = CGRectGetMaxY(upper.firstObject.frame) +
+                        (CGRectGetMinY(lower.firstObject.frame) - CGRectGetMaxY(upper.firstObject.frame)) * 0.5;
+                    for (NSNumber *y in @[@(nextafter(edge, -INFINITY)), @(edge), @(nextafter(edge, INFINITY))]) {
+                        CGPoint point = CGPointMake(width.doubleValue * 0.5, y.doubleValue);
+                        UIView *owner = [keyboard hitTest:point withEvent:nil];
+                        XCTAssertTrue([upper containsObject:owner] || [lower containsObject:owner],
+                                      @"Missing near-row owner at y %.17g width %@ layout %@ mode %@",
+                                      point.y, width, layout, mode);
+                        if ([owner isKindOfClass:FSHKeyButton.class]) {
+                            XCTAssertTrue([(FSHKeyButton *)owner pointInside:[keyboard convertPoint:point toView:owner]
+                                                                  withEvent:nil], @"Hit owner must also track near-row touch");
+                        }
+                    }
                 }
             }
         }

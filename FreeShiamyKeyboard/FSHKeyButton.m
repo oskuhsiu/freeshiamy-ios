@@ -1,5 +1,6 @@
 #import "FSHKeyButton.h"
 #import <math.h>
+#import <float.h>
 
 @interface FSHKeyButton ()
 @property (nonatomic, strong) UILabel *alternateHintLabel;
@@ -15,7 +16,17 @@
     CGRect hitBounds = CGRectMake(-self.hitAreaOutsets.left, -self.hitAreaOutsets.top,
                                   CGRectGetWidth(self.bounds) + self.hitAreaOutsets.left + self.hitAreaOutsets.right,
                                   CGRectGetHeight(self.bounds) + self.hitAreaOutsets.top + self.hitAreaOutsets.bottom);
-    return CGRectContainsPoint(hitBounds, point);
+    // The nominal hit rectangles meet exactly at each gap midpoint. UIKit's
+    // parent-to-child conversion can round that shared edge one ULP away from
+    // both rectangles. Include only a scale-relative floating-point guard at
+    // the edge; the control uses this same predicate for tracking after hitTest.
+    CGFloat scale = MAX(1.0, MAX(fabs(point.x), MAX(fabs(point.y),
+        MAX(fabs(CGRectGetMaxX(hitBounds)), fabs(CGRectGetMaxY(hitBounds))))));
+    CGFloat epsilon = 64.0 * DBL_EPSILON * scale;
+    return point.x >= CGRectGetMinX(hitBounds) - epsilon &&
+           point.x <= CGRectGetMaxX(hitBounds) + epsilon &&
+           point.y >= CGRectGetMinY(hitBounds) - epsilon &&
+           point.y <= CGRectGetMaxY(hitBounds) + epsilon;
 }
 
 - (void)setAlternateHint:(NSString *)alternateHint {
