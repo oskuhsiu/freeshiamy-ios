@@ -3,8 +3,9 @@
 
 @interface CodeSearchViewController () <UITextFieldDelegate>
 
+@property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UITextField *queryField;
-@property (nonatomic, strong) UITextView *resultsView;
+@property (nonatomic, strong) UILabel *resultsLabel;
 @property (nonatomic, strong) FSHShiamyEngine *engine;
 @property (nonatomic, assign) NSUInteger loadGeneration;
 @property (nonatomic, copy) NSString *loadErrorDescription;
@@ -18,15 +19,21 @@
     self.title = @"查字根";
     self.view.backgroundColor = [UIColor systemBackgroundColor];
 
+    self.scrollView = [[UIScrollView alloc] init];
+    self.scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.scrollView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+    UIStackView *stack = [[UIStackView alloc] init];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 12.0;
+
     UILabel *instructions = [[UILabel alloc] init];
-    instructions.translatesAutoresizingMaskIntoConstraints = NO;
     instructions.text = @"輸入中文字，查詢最短與其他嘸蝦米字碼；多個字會逐字查詢。";
     instructions.numberOfLines = 0;
     instructions.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
     instructions.adjustsFontForContentSizeCategory = YES;
 
     self.queryField = [[UITextField alloc] init];
-    self.queryField.translatesAutoresizingMaskIntoConstraints = NO;
     self.queryField.borderStyle = UITextBorderStyleRoundedRect;
     self.queryField.placeholder = @"輸入要查的字";
     self.queryField.clearButtonMode = UITextFieldViewModeWhileEditing;
@@ -37,38 +44,32 @@
     self.queryField.accessibilityIdentifier = @"codeSearch.query";
     [self.queryField addTarget:self action:@selector(queryChanged:) forControlEvents:UIControlEventEditingChanged];
 
-    self.resultsView = [[UITextView alloc] init];
-    self.resultsView.translatesAutoresizingMaskIntoConstraints = NO;
-    self.resultsView.editable = NO;
-    self.resultsView.selectable = YES;
-    self.resultsView.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    self.resultsView.layer.cornerRadius = 8.0;
-    self.resultsView.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
-    self.resultsView.adjustsFontForContentSizeCategory = YES;
-    self.resultsView.accessibilityIdentifier = @"codeSearch.results";
+    self.resultsLabel = [[UILabel alloc] init];
+    self.resultsLabel.numberOfLines = 0;
+    self.resultsLabel.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    self.resultsLabel.layer.cornerRadius = 8.0;
+    self.resultsLabel.layer.masksToBounds = YES;
+    self.resultsLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    self.resultsLabel.adjustsFontForContentSizeCategory = YES;
+    self.resultsLabel.accessibilityIdentifier = @"codeSearch.results";
 
-    [self.view addSubview:instructions];
-    [self.view addSubview:self.queryField];
-    [self.view addSubview:self.resultsView];
-    UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
+    [self.view addSubview:self.scrollView];
+    [self.scrollView addSubview:stack];
+    [stack addArrangedSubview:instructions];
+    [stack addArrangedSubview:self.queryField];
+    [stack addArrangedSubview:self.resultsLabel];
     [NSLayoutConstraint activateConstraints:@[
-        [instructions.topAnchor constraintEqualToAnchor:safe.topAnchor constant:16.0],
-        [instructions.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16.0],
-        [instructions.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16.0],
-        [self.queryField.topAnchor constraintEqualToAnchor:instructions.bottomAnchor constant:12.0],
-        [self.queryField.leadingAnchor constraintEqualToAnchor:instructions.leadingAnchor],
-        [self.queryField.trailingAnchor constraintEqualToAnchor:instructions.trailingAnchor],
+        [self.scrollView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
+        [self.scrollView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.scrollView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.scrollView.bottomAnchor constraintEqualToAnchor:self.view.keyboardLayoutGuide.topAnchor],
+        [stack.topAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.topAnchor constant:16.0],
+        [stack.bottomAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.bottomAnchor constant:-16.0],
+        [stack.leadingAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.leadingAnchor constant:16.0],
+        [stack.trailingAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.trailingAnchor constant:-16.0],
+        [stack.widthAnchor constraintEqualToAnchor:self.scrollView.frameLayoutGuide.widthAnchor constant:-32.0],
         [self.queryField.heightAnchor constraintGreaterThanOrEqualToConstant:44.0],
-        [self.resultsView.topAnchor constraintEqualToAnchor:self.queryField.bottomAnchor constant:12.0],
-        [self.resultsView.leadingAnchor constraintEqualToAnchor:instructions.leadingAnchor],
-        [self.resultsView.trailingAnchor constraintEqualToAnchor:instructions.trailingAnchor],
     ]];
-    NSLayoutConstraint *minimumResultsHeight = [self.resultsView.heightAnchor constraintGreaterThanOrEqualToConstant:100.0];
-    minimumResultsHeight.priority = UILayoutPriorityDefaultLow;
-    minimumResultsHeight.active = YES;
-    NSLayoutConstraint *resultsBottom = [self.resultsView.bottomAnchor constraintEqualToAnchor:self.view.keyboardLayoutGuide.topAnchor constant:-16.0];
-    resultsBottom.priority = UILayoutPriorityDefaultHigh;
-    resultsBottom.active = YES;
 
     [self loadDictionaryAsync];
 }
@@ -80,11 +81,12 @@
     self.loadErrorDescription = nil;
     self.navigationItem.rightBarButtonItem = nil;
     [self renderResults];
+    FSHShiamyEngine *engine = [self newDictionaryEngine];
+    NSBundle *bundle = [self dictionaryBundle];
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        FSHShiamyEngine *engine = [[FSHShiamyEngine alloc] init];
         NSError *error = nil;
-        BOOL loaded = [engine loadFromBundle:[NSBundle mainBundle] error:&error];
+        BOOL loaded = [engine loadFromBundle:bundle error:&error];
         dispatch_async(dispatch_get_main_queue(), ^{
             CodeSearchViewController *strongSelf = weakSelf;
             if (!strongSelf || generation != strongSelf.loadGeneration) {
@@ -100,8 +102,35 @@
     });
 }
 
+- (FSHShiamyEngine *)newDictionaryEngine {
+    return [[FSHShiamyEngine alloc] init];
+}
+
+- (NSBundle *)dictionaryBundle {
+    return [NSBundle mainBundle];
+}
+
 - (void)queryChanged:(UITextField *)field {
+    if (field.markedTextRange) {
+        return;
+    }
     [self renderResults];
+}
+
+- (void)textFieldDidBeginEditing:(UITextField *)textField {
+    [self scrollQueryIntoView];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    if (self.queryField.isFirstResponder) {
+        [self scrollQueryIntoView];
+    }
+}
+
+- (void)scrollQueryIntoView {
+    CGRect queryRect = [self.queryField convertRect:self.queryField.bounds toView:self.scrollView];
+    [self.scrollView scrollRectToVisible:CGRectInset(queryRect, 0.0, -8.0) animated:NO];
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
@@ -111,14 +140,14 @@
 
 - (void)renderResults {
     if (!self.engine) {
-        self.resultsView.text = self.loadErrorDescription.length > 0
+        self.resultsLabel.text = self.loadErrorDescription.length > 0
             ? [NSString stringWithFormat:@"字庫載入失敗：%@", self.loadErrorDescription]
             : @"字庫載入中…";
         return;
     }
     NSString *query = [self.queryField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (query.length == 0) {
-        self.resultsView.text = @"輸入一個或多個字開始查詢。";
+        self.resultsLabel.text = @"輸入一個或多個字開始查詢。";
         return;
     }
     NSMutableArray<NSString *> *lines = [NSMutableArray array];
@@ -126,6 +155,10 @@
     [query enumerateSubstringsInRange:NSMakeRange(0, query.length)
                               options:NSStringEnumerationByComposedCharacterSequences
                            usingBlock:^(NSString * _Nullable character, NSRange substringRange, NSRange enclosingRange, BOOL * _Nonnull stop) {
+        if (character.length == 0 ||
+            [character rangeOfCharacterFromSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].location != NSNotFound) {
+            return;
+        }
         if (count == 64) {
             [lines addObject:@"一次最多查詢 64 個字，請縮短輸入。"];
             *stop = YES;
@@ -149,7 +182,7 @@
         [lines addObject:[NSString stringWithFormat:@"%@：最短 %@；其他 %@", character, shortest,
                           [alternatives componentsJoinedByString:@"、"]]];
     }];
-    self.resultsView.text = [lines componentsJoinedByString:@"\n"];
+    self.resultsLabel.text = [lines componentsJoinedByString:@"\n"];
 }
 
 @end

@@ -64,6 +64,22 @@
 }
 @end
 
+@interface FSHCodeSearchFixtureController : CodeSearchViewController
+@property (nonatomic, assign) BOOL failNextLoad;
+@end
+
+@implementation FSHCodeSearchFixtureController
+- (FSHShiamyEngine *)newDictionaryEngine {
+    if (!self.failNextLoad) {
+        return [[FSHShiamyEngine alloc] init];
+    }
+    FSHFixtureEngine *engine = [[FSHFixtureEngine alloc] init];
+    engine.mainPath = @"/missing-main.cin";
+    engine.spellPath = @"/missing-spell.cin";
+    return engine;
+}
+@end
+
 @interface FSHFakeDocumentProxy : NSObject
 @property (nonatomic, strong) NSMutableString *text;
 @property (nonatomic, assign, getter=isSecureTextEntry) BOOL secureTextEntry;
@@ -612,7 +628,7 @@
     CodeSearchViewController *search = [[CodeSearchViewController alloc] init];
     [search loadViewIfNeeded];
     UITextField *queryField = [search valueForKey:@"queryField"];
-    UITextView *resultsView = [search valueForKey:@"resultsView"];
+    UILabel *resultsView = [search valueForKey:@"resultsLabel"];
     XCTAssertEqualObjects(queryField.accessibilityIdentifier, @"codeSearch.query");
     XCTAssertEqualObjects(resultsView.accessibilityIdentifier, @"codeSearch.results");
     queryField.text = @"行中😀";
@@ -624,18 +640,98 @@
     XCTAssertEqual([XCTWaiter waitForExpectations:@[completed] timeout:20.0], XCTWaiterResultCompleted);
     XCTAssertNil([search valueForKey:@"loadErrorDescription"]);
     XCTAssertEqualObjects(resultsView.text, @"行：最短 MV；其他 MIRI\n中：最短 CI；其他 CJ、CJV\n😀：查無字碼");
+    queryField.text = @"行 中";
+    [queryField sendActionsForControlEvents:UIControlEventEditingChanged];
+    XCTAssertEqualObjects(resultsView.text, @"行：最短 MV；其他 MIRI\n中：最短 CI；其他 CJ、CJV");
     queryField.text = @"";
     [queryField sendActionsForControlEvents:UIControlEventEditingChanged];
     XCTAssertEqualObjects(resultsView.text, @"輸入一個或多個字開始查詢。");
 }
 
+- (void)testCodeSearchFailureRetryUsesLatestQueryAndKeepsInput {
+    FSHCodeSearchFixtureController *search = [[FSHCodeSearchFixtureController alloc] init];
+    search.failNextLoad = YES;
+    [search loadViewIfNeeded];
+    UITextField *queryField = [search valueForKey:@"queryField"];
+    UILabel *resultsLabel = [search valueForKey:@"resultsLabel"];
+    queryField.text = @"行";
+    [queryField sendActionsForControlEvents:UIControlEventEditingChanged];
+    NSPredicate *failedPredicate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return [search valueForKey:@"loadErrorDescription"] != nil;
+    }];
+    XCTNSPredicateExpectation *failed = [[XCTNSPredicateExpectation alloc] initWithPredicate:failedPredicate object:search];
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[failed] timeout:20.0], XCTWaiterResultCompleted);
+    XCTAssertEqualObjects(queryField.text, @"行");
+    XCTAssertTrue([resultsLabel.text hasPrefix:@"字庫載入失敗"]);
+    UIBarButtonItem *retry = search.navigationItem.rightBarButtonItem;
+    XCTAssertNotNil(retry);
+    search.failNextLoad = NO;
+    XCTAssertTrue([[UIApplication sharedApplication] sendAction:retry.action to:retry.target from:retry forEvent:nil]);
+    queryField.text = @"中";
+    [queryField sendActionsForControlEvents:UIControlEventEditingChanged];
+    NSPredicate *loadedPredicate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return [search valueForKey:@"engine"] != nil;
+    }];
+    XCTNSPredicateExpectation *loaded = [[XCTNSPredicateExpectation alloc] initWithPredicate:loadedPredicate object:search];
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[loaded] timeout:20.0], XCTWaiterResultCompleted);
+    XCTAssertEqualObjects(queryField.text, @"中");
+    XCTAssertEqualObjects(resultsLabel.text, @"中：最短 CI；其他 CJ、CJV");
+    XCTAssertNil(search.navigationItem.rightBarButtonItem);
+}
+
+- (void)testCodeSearchCapsQueryAt64ComposedCharacters {
+    CodeSearchViewController *search = [[CodeSearchViewController alloc] init];
+    [search loadViewIfNeeded];
+    NSPredicate *loadedPredicate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return [search valueForKey:@"engine"] != nil;
+    }];
+    XCTNSPredicateExpectation *loaded = [[XCTNSPredicateExpectation alloc] initWithPredicate:loadedPredicate object:search];
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[loaded] timeout:20.0], XCTWaiterResultCompleted);
+    UITextField *queryField = [search valueForKey:@"queryField"];
+    UILabel *resultsLabel = [search valueForKey:@"resultsLabel"];
+    NSMutableString *query = [NSMutableString string];
+    for (NSUInteger index = 0; index < 64; index++) {
+        [query appendString:@"😀"];
+    }
+    queryField.text = query;
+    [queryField sendActionsForControlEvents:UIControlEventEditingChanged];
+    XCTAssertEqual([resultsLabel.text componentsSeparatedByString:@"\n"].count, (NSUInteger)64);
+    XCTAssertFalse([resultsLabel.text containsString:@"最多查詢"]);
+    [query appendString:@"😀"];
+    queryField.text = query;
+    [queryField sendActionsForControlEvents:UIControlEventEditingChanged];
+    NSArray<NSString *> *lines = [resultsLabel.text componentsSeparatedByString:@"\n"];
+    XCTAssertEqual(lines.count, (NSUInteger)65);
+    XCTAssertEqualObjects(lines.lastObject, @"一次最多查詢 64 個字，請縮短輸入。");
+}
+
 - (void)testHostCodeSearchRendersInAttachedWindow {
     CodeSearchViewController *search = [[CodeSearchViewController alloc] init];
     UINavigationController *navigation = [[UINavigationController alloc] initWithRootViewController:search];
-    UIWindow *window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    UIWindowScene *activeScene = nil;
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if ([scene isKindOfClass:[UIWindowScene class]] && scene.activationState == UISceneActivationStateForegroundActive) {
+            activeScene = (UIWindowScene *)scene;
+            break;
+        }
+    }
+    XCTAssertNotNil(activeScene);
+    if (!activeScene) {
+        return;
+    }
+    UIWindow *oldKeyWindow = nil;
+    for (UIWindow *sceneWindow in activeScene.windows) {
+        if (sceneWindow.isKeyWindow) {
+            oldKeyWindow = sceneWindow;
+            break;
+        }
+    }
+    UIWindow *window = [[UIWindow alloc] initWithWindowScene:activeScene];
+    window.frame = activeScene.coordinateSpace.bounds;
     window.rootViewController = navigation;
     [window makeKeyAndVisible];
     [search loadViewIfNeeded];
+    XCTAssertEqual(search.view.window, window);
     NSPredicate *loadedPredicate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
         return [search valueForKey:@"engine"] != nil || [search valueForKey:@"loadErrorDescription"] != nil;
     }];
@@ -643,25 +739,53 @@
     XCTAssertEqual([XCTWaiter waitForExpectations:@[completed] timeout:20.0], XCTWaiterResultCompleted);
     XCTAssertNil([search valueForKey:@"loadErrorDescription"]);
     UITextField *queryField = [search valueForKey:@"queryField"];
-    UITextView *resultsView = [search valueForKey:@"resultsView"];
+    UILabel *resultsView = [search valueForKey:@"resultsLabel"];
     queryField.text = @"行中";
     [queryField sendActionsForControlEvents:UIControlEventEditingChanged];
     [window layoutIfNeeded];
+    XCTAssertGreaterThan(queryField.bounds.size.height, 0.0);
     XCTAssertFalse(CGRectIsEmpty(resultsView.frame));
-    XCTAssertTrue(CGRectContainsRect(window.bounds, [resultsView convertRect:resultsView.bounds toView:window]));
     for (NSNumber *style in @[@(UIUserInterfaceStyleLight), @(UIUserInterfaceStyleDark)]) {
         window.overrideUserInterfaceStyle = style.integerValue;
         [window layoutIfNeeded];
         UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithBounds:window.bounds];
+        __block BOOL rendered = NO;
         UIImage *snapshot = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-            [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
+            rendered = [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
         }];
+        XCTAssertTrue(rendered);
         XCTAttachment *attachment = [XCTAttachment attachmentWithImage:snapshot];
         attachment.name = style.integerValue == UIUserInterfaceStyleLight ? @"Host code search - light" : @"Host code search - dark";
         attachment.lifetime = XCTAttachmentLifetimeKeepAlways;
         [self addAttachment:attachment];
     }
+    UITraitCollection *largeText = [UITraitCollection traitCollectionWithPreferredContentSizeCategory:UIContentSizeCategoryAccessibilityMedium];
+    [navigation setOverrideTraitCollection:largeText forChildViewController:search];
+    window.frame = CGRectMake(0.0, 0.0, 320.0, 390.0);
+    XCTAssertTrue([queryField becomeFirstResponder]);
+    [self waitForSeconds:0.5];
+    [window layoutIfNeeded];
+    UIScrollView *scrollView = [search valueForKey:@"scrollView"];
+    CGRect queryInScroll = [queryField convertRect:queryField.bounds toView:scrollView];
+    CGFloat visibleTop = scrollView.contentOffset.y;
+    CGFloat visibleBottom = visibleTop + scrollView.bounds.size.height;
+    XCTAssertGreaterThanOrEqual(CGRectGetMinY(queryInScroll), visibleTop - 1.0);
+    XCTAssertLessThanOrEqual(CGRectGetMaxY(queryInScroll), visibleBottom + 1.0);
+    XCTAssertLessThanOrEqual(CGRectGetMaxY(scrollView.frame),
+                             CGRectGetMinY(search.view.keyboardLayoutGuide.layoutFrame) + 1.0);
+    UIGraphicsImageRenderer *compactRenderer = [[UIGraphicsImageRenderer alloc] initWithBounds:window.bounds];
+    __block BOOL compactRendered = NO;
+    UIImage *compactSnapshot = [compactRenderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        compactRendered = [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
+    }];
+    XCTAssertTrue(compactRendered);
+    XCTAttachment *compactAttachment = [XCTAttachment attachmentWithImage:compactSnapshot];
+    compactAttachment.name = @"Host search - focused compact window and accessibility text";
+    compactAttachment.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:compactAttachment];
+    [queryField resignFirstResponder];
     window.hidden = YES;
+    [oldKeyWindow makeKeyAndVisible];
 }
 
 - (void)testHostCodeSearchDoesNotChangeTestInputFields {

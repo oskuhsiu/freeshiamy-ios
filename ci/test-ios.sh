@@ -73,6 +73,19 @@ result=$?
 set -e
 
 echo "[stage] xcodebuild exit status $result"
+if [[ -d "$ARTIFACTS/test.xcresult" ]]; then
+    echo "[stage] export retained XCTest attachments"
+    mkdir -p "$ARTIFACTS/attachments"
+    if ! xcrun xcresulttool export attachments \
+        --path "$ARTIFACTS/test.xcresult" \
+        --output-path "$ARTIFACTS/attachments" \
+        > "$ARTIFACTS/attachments-export.log" 2>&1; then
+        cat "$ARTIFACTS/attachments-export.log"
+        if [[ "$result" == 0 ]]; then
+            result=1
+        fi
+    fi
+fi
 xcrun simctl io "$DEVICE_ID" screenshot "$ARTIFACTS/simulator-final.png" || true
 tail -n 120 "$ARTIFACTS/xcodebuild.log"
 exit "$result"
