@@ -1,4 +1,5 @@
 #import <XCTest/XCTest.h>
+#import <math.h>
 #import "InputViewController.h"
 #import "FSHKeyboardView.h"
 #import "FSHKeyButton.h"
@@ -6,6 +7,7 @@
 #import "FSHCandidate.h"
 #import "FSHShiamyEngine.h"
 #import "FSHCinParser.h"
+#import "FSHSettings.h"
 #import "CodeSearchViewController.h"
 #import "ViewController.h"
 
@@ -77,6 +79,27 @@
     engine.mainPath = @"/missing-main.cin";
     engine.spellPath = @"/missing-spell.cin";
     return engine;
+}
+@end
+
+static id FSHFixtureDefaults;
+
+@interface FSHDictionaryDefaults : NSObject
+@property (nonatomic, copy) NSDictionary<NSString *, id> *values;
+@end
+
+@implementation FSHDictionaryDefaults
+- (id)objectForKey:(NSString *)key {
+    return self.values[key];
+}
+@end
+
+@interface FSHIsolatedSettings : FSHSettings
+@end
+
+@implementation FSHIsolatedSettings
++ (NSUserDefaults *)sharedDefaults {
+    return (NSUserDefaults *)FSHFixtureDefaults;
 }
 @end
 
@@ -199,6 +222,94 @@
     [self tapDelete];
     XCTAssertEqualObjects(self.proxy.text, @"ab");
     XCTAssertNil([self.controller valueForKey:@"deleteRepeatTimer"]);
+}
+
+- (void)testSettingsSanitizePersistedValuesAndSetterInputs {
+    NSString *suite = [@"freeshiamy.settings.tests." stringByAppendingString:[[NSUUID UUID] UUIDString]];
+    NSUserDefaults *suiteDefaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    FSHFixtureDefaults = suiteDefaults;
+    @try {
+        [FSHFixtureDefaults removePersistentDomainForName:suite];
+        XCTAssertEqual([FSHIsolatedSettings keyboardHeightPercent], (NSInteger)100);
+        XCTAssertEqual([FSHIsolatedSettings candidateInlineLimit], (NSInteger)10);
+        XCTAssertEqual([FSHIsolatedSettings candidateMoreLimit], (NSInteger)200);
+        XCTAssertEqualObjects([FSHIsolatedSettings keyboardLayout], @"standard");
+
+        for (id malformed in @[@"17", @"garbage", @[], @{}, @1.5]) {
+            [FSHFixtureDefaults setObject:malformed forKey:@"keyboard_height_percent"];
+            [FSHFixtureDefaults setObject:malformed forKey:@"candidate_inline_limit"];
+            [FSHFixtureDefaults setObject:malformed forKey:@"candidate_more_limit"];
+            XCTAssertEqual([FSHIsolatedSettings keyboardHeightPercent], (NSInteger)100);
+            XCTAssertEqual([FSHIsolatedSettings candidateInlineLimit], (NSInteger)10);
+            XCTAssertEqual([FSHIsolatedSettings candidateMoreLimit], (NSInteger)200);
+        }
+
+        [FSHFixtureDefaults setObject:@130 forKey:@"keyboard_height_percent"];
+        [FSHFixtureDefaults setObject:@12 forKey:@"candidate_inline_limit"];
+        [FSHFixtureDefaults setObject:@350 forKey:@"candidate_more_limit"];
+        XCTAssertEqual([FSHIsolatedSettings keyboardHeightPercent], (NSInteger)130);
+        XCTAssertEqual([FSHIsolatedSettings candidateInlineLimit], (NSInteger)12);
+        XCTAssertEqual([FSHIsolatedSettings candidateMoreLimit], (NSInteger)350);
+
+        FSHDictionaryDefaults *nonfiniteDefaults = [[FSHDictionaryDefaults alloc] init];
+        nonfiniteDefaults.values = @{@"keyboard_height_percent": @(NAN),
+                                     @"candidate_inline_limit": @(INFINITY),
+                                     @"candidate_more_limit": @(-INFINITY)};
+        FSHFixtureDefaults = nonfiniteDefaults;
+        XCTAssertEqual([FSHIsolatedSettings keyboardHeightPercent], (NSInteger)100);
+        XCTAssertEqual([FSHIsolatedSettings candidateInlineLimit], (NSInteger)10);
+        XCTAssertEqual([FSHIsolatedSettings candidateMoreLimit], (NSInteger)200);
+        FSHFixtureDefaults = suiteDefaults;
+
+        [FSHFixtureDefaults setObject:@(NSIntegerMin) forKey:@"keyboard_height_percent"];
+        [FSHFixtureDefaults setObject:@(NSIntegerMax) forKey:@"candidate_inline_limit"];
+        [FSHFixtureDefaults setObject:@0 forKey:@"candidate_more_limit"];
+        XCTAssertEqual([FSHIsolatedSettings keyboardHeightPercent], (NSInteger)90);
+        XCTAssertEqual([FSHIsolatedSettings candidateInlineLimit], (NSInteger)20);
+        XCTAssertEqual([FSHIsolatedSettings candidateMoreLimit], (NSInteger)50);
+        [FSHFixtureDefaults setObject:@(NSIntegerMax) forKey:@"keyboard_height_percent"];
+        [FSHFixtureDefaults setObject:@(NSIntegerMin) forKey:@"candidate_inline_limit"];
+        [FSHFixtureDefaults setObject:@(NSIntegerMax) forKey:@"candidate_more_limit"];
+        XCTAssertEqual([FSHIsolatedSettings keyboardHeightPercent], (NSInteger)220);
+        XCTAssertEqual([FSHIsolatedSettings candidateInlineLimit], (NSInteger)5);
+        XCTAssertEqual([FSHIsolatedSettings candidateMoreLimit], (NSInteger)500);
+
+        [FSHIsolatedSettings setKeyboardHeightPercent:90];
+        [FSHIsolatedSettings setCandidateInlineLimit:5];
+        [FSHIsolatedSettings setCandidateMoreLimit:50];
+        XCTAssertEqual([FSHIsolatedSettings keyboardHeightPercent], (NSInteger)90);
+        XCTAssertEqual([FSHIsolatedSettings candidateInlineLimit], (NSInteger)5);
+        XCTAssertEqual([FSHIsolatedSettings candidateMoreLimit], (NSInteger)50);
+        [FSHIsolatedSettings setKeyboardHeightPercent:220];
+        [FSHIsolatedSettings setCandidateInlineLimit:20];
+        [FSHIsolatedSettings setCandidateMoreLimit:500];
+        XCTAssertEqual([FSHIsolatedSettings keyboardHeightPercent], (NSInteger)220);
+        XCTAssertEqual([FSHIsolatedSettings candidateInlineLimit], (NSInteger)20);
+        XCTAssertEqual([FSHIsolatedSettings candidateMoreLimit], (NSInteger)500);
+        [FSHIsolatedSettings setKeyboardHeightPercent:NSIntegerMin];
+        [FSHIsolatedSettings setCandidateInlineLimit:NSIntegerMax];
+        [FSHIsolatedSettings setCandidateMoreLimit:NSIntegerMax];
+        XCTAssertEqual([FSHFixtureDefaults integerForKey:@"keyboard_height_percent"], (NSInteger)90);
+        XCTAssertEqual([FSHFixtureDefaults integerForKey:@"candidate_inline_limit"], (NSInteger)20);
+        XCTAssertEqual([FSHFixtureDefaults integerForKey:@"candidate_more_limit"], (NSInteger)500);
+
+        for (NSString *layout in @[@"standard", @"standard_spacious", @"original",
+                                     @"original_no_number", @"standard_label_top"]) {
+            [FSHFixtureDefaults setObject:layout forKey:@"keyboard_layout"];
+            XCTAssertEqualObjects([FSHIsolatedSettings keyboardLayout], layout);
+            [FSHIsolatedSettings setKeyboardLayout:layout];
+            XCTAssertEqualObjects([FSHFixtureDefaults stringForKey:@"keyboard_layout"], layout);
+        }
+        for (id malformed in @[@"unknown", @"", @42, @[], @{}]) {
+            [FSHFixtureDefaults setObject:malformed forKey:@"keyboard_layout"];
+            XCTAssertEqualObjects([FSHIsolatedSettings keyboardLayout], @"standard");
+            [FSHIsolatedSettings setKeyboardLayout:malformed];
+            XCTAssertEqualObjects([FSHFixtureDefaults stringForKey:@"keyboard_layout"], @"standard");
+        }
+    } @finally {
+        [suiteDefaults removePersistentDomainForName:suite];
+        FSHFixtureDefaults = nil;
+    }
 }
 
 - (void)testTapDeletesRawBufferExactlyOnce {

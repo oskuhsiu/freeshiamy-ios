@@ -29,7 +29,7 @@ This branch starts from `master` at `2d449c3ce19b5faaa0704d4c67a69a4e75f0736f`. 
 | F23 | Under test | Homophone index keeps first pronunciation only | All known readings for 行/樂 with stable deduped order |
 | F24 | Under test | Duplicate comma/period entries in main dictionary | Exact duplicates removed, alternate codes retained |
 | F25 | Under test | Host app lacks character-to-all-codes search | Offline lookup: 行→MV/MIRI, 中→CI/CJ/CJV |
-| F26 | Open | Settings accept arbitrary numbers/strings | Range/enum sanitation and legacy fixture tests |
+| F26 | Under test | Settings accept arbitrary numbers/strings | Range/enum sanitation and legacy fixture tests |
 | F27 | Open | Sensitive setting label overstates implemented trait guard | UI wording matches actual password/OTP trait behavior |
 | F28 | Open | Host controls anchored below keyboard | Reachable focused inputs in portrait/landscape/iPad |
 | F29 | Open | Keyboard height ignores available landscape/floating space | No negative frames/constraint breaks with expanded candidates |
@@ -38,6 +38,8 @@ This branch starts from `master` at `2d449c3ce19b5faaa0704d4c67a69a4e75f0736f`. 
 ## Verification
 
 The branch adds a shared Xcode scheme, hosted XCTest cases and a macOS simulator workflow. CI uses Xcode 26.2 and a simulator created for that job, saves logs and an `.xcresult`, and does not alter production signing or entitlements. A passing simulator suite establishes only the behaviors it asserts. Extension-host integration, accessibility appearance, App Group access, screenshots and performance measurements need separate evidence before their corresponding items can close.
+
+Numeric settings accept stored NSNumbers containing finite whole values. Values below or above the supported range clamp to its boundary, including zero and negative values; missing, wrongly typed, fractional, or non-finite values use the documented default. Keyboard layouts accept only the three current values and the two known legacy values until host-app migration consumes them. Both reads and writes apply the same limits.
 
 ### CI decision record, 2026-10-14
 

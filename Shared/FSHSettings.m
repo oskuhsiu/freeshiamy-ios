@@ -1,4 +1,5 @@
 #import "FSHSettings.h"
+#import <math.h>
 
 static NSString *const kFSHAppGroup = @"group.osku.me.freeshiamy";
 
@@ -12,6 +13,38 @@ static NSString *const kFSHKeyCandidateMoreLimit = @"candidate_more_limit";
 static NSString *const kFSHKeyShowShortestCodeHint = @"show_shortest_code_hint";
 static NSString *const kFSHKeyDisableImeSensitive = @"disable_ime_in_sensitive_fields";
 static NSString *const kFSHKeySensitiveNoPersonalized = @"sensitive_field_include_no_personalized_learning";
+
+static NSInteger FSHBoundedInteger(id value, NSInteger fallback, NSInteger minimum, NSInteger maximum) {
+    // The application writes NSNumbers. Do not let NSUserDefaults coerce a corrupt
+    // string, collection, fractional value, or non-finite number into a setting.
+    if (![value isKindOfClass:[NSNumber class]]) {
+        return fallback;
+    }
+    double number = [value doubleValue];
+    if (!isfinite(number) || trunc(number) != number) {
+        return fallback;
+    }
+    if (number <= (double)minimum) {
+        return minimum;
+    }
+    if (number >= (double)maximum) {
+        return maximum;
+    }
+    return [value integerValue];
+}
+
+static NSString *FSHValidLayout(id value) {
+    if (![value isKindOfClass:[NSString class]]) {
+        return @"standard";
+    }
+    static NSSet<NSString *> *layouts;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        layouts = [NSSet setWithArray:@[@"standard", @"standard_spacious", @"original",
+                                        @"original_no_number", @"standard_label_top"]];
+    });
+    return [layouts containsObject:value] ? value : @"standard";
+}
 
 @implementation FSHSettings
 
@@ -37,23 +70,19 @@ static NSString *const kFSHKeySensitiveNoPersonalized = @"sensitive_field_includ
 }
 
 + (NSInteger)keyboardHeightPercent {
-    return [[self sharedDefaults] integerForKey:kFSHKeyKeyboardHeightPercent];
+    return FSHBoundedInteger([[self sharedDefaults] objectForKey:kFSHKeyKeyboardHeightPercent], 100, 90, 220);
 }
 
 + (void)setKeyboardHeightPercent:(NSInteger)value {
-    [[self sharedDefaults] setInteger:value forKey:kFSHKeyKeyboardHeightPercent];
+    [[self sharedDefaults] setInteger:MAX(90, MIN(value, 220)) forKey:kFSHKeyKeyboardHeightPercent];
 }
 
 + (NSString *)keyboardLayout {
-    NSString *value = [[self sharedDefaults] stringForKey:kFSHKeyKeyboardLayout];
-    return value.length > 0 ? value : @"standard";
+    return FSHValidLayout([[self sharedDefaults] objectForKey:kFSHKeyKeyboardLayout]);
 }
 
 + (void)setKeyboardLayout:(NSString *)value {
-    if (value.length == 0) {
-        value = @"standard";
-    }
-    [[self sharedDefaults] setObject:value forKey:kFSHKeyKeyboardLayout];
+    [[self sharedDefaults] setObject:FSHValidLayout(value) forKey:kFSHKeyKeyboardLayout];
 }
 
 + (BOOL)showNumberRow {
@@ -81,21 +110,19 @@ static NSString *const kFSHKeySensitiveNoPersonalized = @"sensitive_field_includ
 }
 
 + (NSInteger)candidateInlineLimit {
-    NSInteger value = [[self sharedDefaults] integerForKey:kFSHKeyCandidateInlineLimit];
-    return value > 0 ? value : 10;
+    return FSHBoundedInteger([[self sharedDefaults] objectForKey:kFSHKeyCandidateInlineLimit], 10, 5, 20);
 }
 
 + (void)setCandidateInlineLimit:(NSInteger)value {
-    [[self sharedDefaults] setInteger:value forKey:kFSHKeyCandidateInlineLimit];
+    [[self sharedDefaults] setInteger:MAX(5, MIN(value, 20)) forKey:kFSHKeyCandidateInlineLimit];
 }
 
 + (NSInteger)candidateMoreLimit {
-    NSInteger value = [[self sharedDefaults] integerForKey:kFSHKeyCandidateMoreLimit];
-    return value > 0 ? value : 200;
+    return FSHBoundedInteger([[self sharedDefaults] objectForKey:kFSHKeyCandidateMoreLimit], 200, 50, 500);
 }
 
 + (void)setCandidateMoreLimit:(NSInteger)value {
-    [[self sharedDefaults] setInteger:value forKey:kFSHKeyCandidateMoreLimit];
+    [[self sharedDefaults] setInteger:MAX(50, MIN(value, 500)) forKey:kFSHKeyCandidateMoreLimit];
 }
 
 + (BOOL)showShortestCodeHint {
