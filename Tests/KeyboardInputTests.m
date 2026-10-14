@@ -30,6 +30,7 @@
 - (void)candidateBarView:(FSHCandidateBarView *)barView didSelectCandidateAtIndex:(NSUInteger)index;
 - (void)candidateBarView:(FSHCandidateBarView *)barView didToggleExpanded:(BOOL)expanded;
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didPressKeyCode:(NSInteger)keyCode output:(NSString *)output;
+- (void)keyboardView:(FSHKeyboardView *)keyboardView didBeginPressKeyCode:(NSInteger)keyCode output:(NSString *)output;
 - (void)keyboardView:(FSHKeyboardView *)keyboardView didReceiveInputModeEvent:(UIEvent *)event fromView:(UIView *)view;
 - (void)triggerReverseLookupWithBaseIndex:(NSUInteger)index;
 - (void)updateHintForCommittedValue:(NSString *)value typedCodeLength:(NSUInteger)typedCodeLength isReverse:(BOOL)isReverse;
@@ -2029,7 +2030,7 @@ static NSString *FSHFixtureSuiteName;
     window.rootViewController = host;
     [window makeKeyAndVisible];
     XCTAssertTrue([self waitForView:settings.view toAttachToWindow:window]);
-    [host setOverrideTraitCollection:[UITraitCollection traitCollectionWithPreferredContentSizeCategory:UIContentSizeCategoryAccessibilityXXXL]
+    [host setOverrideTraitCollection:[UITraitCollection traitCollectionWithPreferredContentSizeCategory:UIContentSizeCategoryAccessibilityExtraExtraExtraLarge]
               forChildViewController:settings];
     [host.view layoutIfNeeded];
     UIFont *font = [segment titleTextAttributesForState:UIControlStateNormal][NSFontAttributeName];
@@ -2079,7 +2080,7 @@ static NSString *FSHFixtureSuiteName;
     window.rootViewController = host;
     [window makeKeyAndVisible];
     XCTAssertTrue([self waitForView:panel.view toAttachToWindow:window]);
-    [host setOverrideTraitCollection:[UITraitCollection traitCollectionWithPreferredContentSizeCategory:UIContentSizeCategoryAccessibilityXXXL]
+    [host setOverrideTraitCollection:[UITraitCollection traitCollectionWithPreferredContentSizeCategory:UIContentSizeCategoryAccessibilityExtraExtraExtraLarge]
               forChildViewController:panel];
     [host.view layoutIfNeeded];
     [host.view layoutIfNeeded];
@@ -2193,7 +2194,7 @@ static NSString *FSHFixtureSuiteName;
     UIButton *moreControl = [bar valueForKey:@"moreButton"];
     [moreControl sendActionsForControlEvents:UIControlEventTouchUpInside];
     XCTAssertTrue(bar.isExpanded);
-    [host setOverrideTraitCollection:[UITraitCollection traitCollectionWithPreferredContentSizeCategory:UIContentSizeCategoryAccessibilityXXXL]
+    [host setOverrideTraitCollection:[UITraitCollection traitCollectionWithPreferredContentSizeCategory:UIContentSizeCategoryAccessibilityExtraExtraExtraLarge]
               forChildViewController:controller];
     UIScrollView *moreScroll = [bar valueForKey:@"moreScrollView"];
     for (NSNumber *rootWidth in @[@320.0, @375.0, @393.0, @768.0]) {
@@ -2695,8 +2696,9 @@ static NSString *FSHFixtureSuiteName;
     XCTAssertEqualObjects(self.proxy.text, @"中");
     first = (UIButton *)stack.arrangedSubviews.firstObject;
     NSArray<FSHCandidate *> *reverseCandidates = [self.controller valueForKey:@"candidates"];
-    XCTAssertEqualObjects(first.accessibilityValue,
-                          [NSString stringWithFormat:@"讀音碼 %@，同音字候選", reverseCandidates.firstObject.code]);
+    NSString *expectedPronunciationLabel = [NSString stringWithFormat:@"讀音碼 %@，同音字候選",
+                                            reverseCandidates.firstObject.code];
+    XCTAssertEqualObjects(first.accessibilityValue, expectedPronunciationLabel);
     XCTAssertTrue([first.accessibilityHint containsString:@"空白鍵"]);
     [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeSpace output:@" "];
     XCTAssertEqualObjects([self rawBuffer], @"");

@@ -78,17 +78,25 @@
     XCUIElementQuery *buttons = identifier
         ? [settings.buttons matchingIdentifier:identifier]
         : [settings.cells.buttons matchingPredicate:label];
-    XCUIElementQuery *cells = identifier ? nil : [settings.cells matchingPredicate:label];
+    XCUIElementQuery *labeledCells = identifier ? nil : [settings.cells matchingPredicate:label];
+    NSPredicate *exactText = [NSPredicate predicateWithFormat:@"elementType == %ld AND label IN %@",
+                              (long)XCUIElementTypeStaticText, labels];
+    XCUIElementQuery *containingCells = identifier ? nil : [settings.cells containingPredicate:exactText];
     for (NSUInteger scroll = 0; scroll <= 8; scroll++) {
         __block XCUIElement *target = nil;
         NSPredicate *ready = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
             NSUInteger buttonCount = buttons.count;
-            NSUInteger cellCount = cells ? cells.count : 0;
-            if (buttonCount > 1 || cellCount > 1) return NO;
+            NSUInteger labeledCount = labeledCells ? labeledCells.count : 0;
+            NSUInteger containingCount = containingCells ? containingCells.count : 0;
+            if (buttonCount > 1 || labeledCount > 1 || containingCount > 1) return NO;
             XCUIElement *button = buttonCount == 1 ? buttons.firstMatch : nil;
-            XCUIElement *cell = cellCount == 1 ? cells.firstMatch : nil;
-            // If both expose the label, they must be the same physical row.
-            if (button && cell && !CGRectIntersectsRect(button.frame, cell.frame)) return NO;
+            XCUIElement *labeledCell = labeledCount == 1 ? labeledCells.firstMatch : nil;
+            XCUIElement *containingCell = containingCount == 1 ? containingCells.firstMatch : nil;
+            if (labeledCell && containingCell && !CGRectEqualToRect(labeledCell.frame, containingCell.frame)) return NO;
+            XCUIElement *cell = labeledCell ?: containingCell;
+            // A child button may have CGRectZero even when its cell is
+            // hittable. Check structural containment instead of geometry.
+            if (button && cell && [cell.buttons matchingPredicate:label].count != 1) return NO;
             target = button.isHittable ? button : (cell.isHittable ? cell : nil);
             return target != nil;
         }];
@@ -101,12 +109,24 @@
         if (scroll < 8) [settings swipeUp];
     }
     [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:settings];
-    XCTFail(@"%@: expected one visible, hittable semantic row; found %lu buttons and %lu cells",
-            stage, (unsigned long)buttons.count, (unsigned long)(cells ? cells.count : 0));
+    XCTFail(@"%@: expected one visible, hittable semantic row; found %lu buttons, %lu labeled cells, %lu containing cells",
+            stage, (unsigned long)buttons.count, (unsigned long)(labeledCells ? labeledCells.count : 0),
+            (unsigned long)(containingCells ? containingCells.count : 0));
     return nil;
 }
 
 - (BOOL)tapSettingsRow:(NSString *)title inSettings:(XCUIApplication *)settings {
+    if ([title isEqualToString:@"Keyboards"]) {
+        // iOS 26.2 exposes this composite row as "Keyboards, 2". Its stable
+        // identifier belongs to the actionable cell; the nested button is
+        // zero-sized in the retained simulator hierarchy.
+        XCUIElement *row = [self settingsControl:[settings.cells matchingIdentifier:@"KEYBOARDS"]
+                                         stage:@"Settings row: Keyboards" application:settings];
+        if (!row) return NO;
+        [row tap];
+        [self capture:@"Opened Settings row: Keyboards" application:settings];
+        return YES;
+    }
     NSString *identifier = [title isEqualToString:@"General"] ? @"com.apple.settings.general" : nil;
     XCUIElement *row = [self settingsRowWithLabels:@[title] identifier:identifier
                                             stage:[@"Settings row: " stringByAppendingString:title]
