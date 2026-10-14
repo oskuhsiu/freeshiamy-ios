@@ -135,6 +135,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self applySettings];
+    [self refreshReturnKeyType];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -149,6 +150,16 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
         self.settingsHelpHeightConstraint.constant = helpHeight;
     }
     [self refreshInputModeSwitchKey];
+    [self refreshReturnKeyType];
+}
+
+- (void)refreshReturnKeyType {
+    id<UITextInputTraits> traits = (id)self.textDocumentProxy;
+    UIReturnKeyType type = UIReturnKeyDefault;
+    if ([traits respondsToSelector:@selector(returnKeyType)]) {
+        type = traits.returnKeyType;
+    }
+    self.keyboardView.returnKeyType = type;
 }
 
 - (void)refreshInputModeSwitchKey {
@@ -188,6 +199,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     [self reconcileLiteralFallbackDocument];
     [self reconcileCompositionDocument];
     [self handleSensitiveFieldIfNeeded];
+    [self refreshReturnKeyType];
 }
 
 - (void)selectionWillChange:(id<UITextInput>)textInput {
@@ -203,6 +215,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     [self reconcileLiteralFallbackDocument];
     [self clearComposingState];
     [self handleSensitiveFieldIfNeeded];
+    [self refreshReturnKeyType];
 }
 
 #pragma mark - Engine
@@ -509,32 +522,7 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
         [self commitRawBuffer];
         return;
     }
-    id<UITextInputTraits> traits = (id)self.textDocumentProxy;
-    UIReturnKeyType returnKeyType = UIReturnKeyDefault;
-    if ([traits respondsToSelector:@selector(returnKeyType)]) {
-        returnKeyType = traits.returnKeyType;
-    }
-    switch (returnKeyType) {
-        case UIReturnKeyNext:
-            [self.textDocumentProxy insertText:@"\t"];
-            break;
-        case UIReturnKeyGo:
-        case UIReturnKeySearch:
-        case UIReturnKeySend:
-        case UIReturnKeyDone:
-        case UIReturnKeyJoin:
-        case UIReturnKeyRoute:
-        case UIReturnKeyGoogle:
-        case UIReturnKeyYahoo:
-        case UIReturnKeyEmergencyCall:
-        case UIReturnKeyContinue:
-            [self dismissKeyboard];
-            break;
-        case UIReturnKeyDefault:
-        default:
-            [self.textDocumentProxy insertText:@"\n"];
-            break;
-    }
+    [self.textDocumentProxy insertText:@"\n"];
 }
 
 - (void)handleSpace {

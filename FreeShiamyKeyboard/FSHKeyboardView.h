@@ -48,6 +48,7 @@ static const NSInteger FSHKeyCodeEnter = 10;
 @property (nonatomic, assign) BOOL leftShift;
 @property (nonatomic, assign) BOOL shiftOn;
 @property (nonatomic, assign) BOOL capsLockOn;
+@property (nonatomic, assign) UIReturnKeyType returnKeyType;
 
 - (void)reloadKeys;
 - (void)cancelActivePress;

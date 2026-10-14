@@ -150,6 +150,7 @@ static id FSHFixtureDefaults;
 @property (nonatomic, assign, getter=isSecureTextEntry) BOOL secureTextEntry;
 @property (nonatomic, copy) NSString *textContentType;
 @property (nonatomic, copy) NSUUID *documentIdentifier;
+@property (nonatomic, assign) UIReturnKeyType returnKeyType;
 @end
 
 @interface FSHNoContentTypeProxy : FSHFakeDocumentProxy
@@ -304,6 +305,99 @@ static id FSHFixtureDefaults;
     }];
     XCTNSPredicateExpectation *attached = [[XCTNSPredicateExpectation alloc] initWithPredicate:attachedPredicate object:view];
     return [XCTWaiter waitForExpectations:@[attached] timeout:5.0] == XCTWaiterResultCompleted;
+}
+
+- (UIImage *)snapshotOfWindow:(UIWindow *)window {
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithBounds:window.bounds];
+    __block BOOL rendered = NO;
+    UIImage *snapshot = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        rendered = [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
+    }];
+    XCTAssertTrue(rendered);
+    return snapshot;
+}
+
+- (NSData *)rgbaForImageCrop:(CGImageRef)crop {
+    if (!crop) {
+        return nil;
+    }
+    size_t width = CGImageGetWidth(crop), height = CGImageGetHeight(crop);
+    NSMutableData *pixels = [NSMutableData dataWithLength:width * height * 4];
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(pixels.mutableBytes, width, height, 8, width * 4,
+                                                colorSpace, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    CGColorSpaceRelease(colorSpace);
+    if (!context) {
+        return nil;
+    }
+    // The order of rows does not matter for contrast within this cropped glyph.
+    CGContextDrawImage(context, CGRectMake(0, 0, width, height), crop);
+    CGContextRelease(context);
+    return pixels;
+}
+
+- (CGFloat)titleContrastForButton:(FSHKeyButton *)button inWindow:(UIWindow *)window
+                            image:(UIImage *)image {
+    XCTAssertEqual(image.imageOrientation, UIImageOrientationUp);
+    if (image.imageOrientation != UIImageOrientationUp) {
+        return 0;
+    }
+    CGRect titleRect = [button.titleLabel convertRect:button.titleLabel.bounds toView:window];
+    CGFloat scale = image.scale;
+    size_t width = CGImageGetWidth(image.CGImage), height = CGImageGetHeight(image.CGImage);
+    NSInteger left = MAX(0, (NSInteger)floor(CGRectGetMinX(titleRect) * scale));
+    NSInteger right = MIN((NSInteger)width, (NSInteger)ceil(CGRectGetMaxX(titleRect) * scale));
+    NSInteger top = MAX(0, (NSInteger)floor(CGRectGetMinY(titleRect) * scale));
+    NSInteger bottom = MIN((NSInteger)height, (NSInteger)ceil(CGRectGetMaxY(titleRect) * scale));
+    if (right <= left || bottom <= top) {
+        return 0;
+    }
+    CGImageRef crop = CGImageCreateWithImageInRect(image.CGImage,
+                                                   CGRectMake(left, top, right - left, bottom - top));
+    NSData *pixels = [self rgbaForImageCrop:crop];
+    CGImageRelease(crop);
+    if (!pixels) {
+        return 0;
+    }
+    const uint8_t *bytes = pixels.bytes;
+    CGFloat low = 1, high = 0;
+    size_t cropWidth = (size_t)(right - left), cropHeight = (size_t)(bottom - top);
+    for (size_t y = 0; y < cropHeight; y++) {
+        for (size_t x = 0; x < cropWidth; x++) {
+            const uint8_t *pixel = bytes + (y * cropWidth + x) * 4;
+            CGFloat luminance = (pixel[0] + pixel[1] + pixel[2]) / (3.0 * 255.0);
+            low = MIN(low, luminance);
+            high = MAX(high, luminance);
+        }
+    }
+    return high - low;
+}
+
+- (void)testSnapshotCropsUseUIKitTopLeftCoordinates {
+    UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat defaultFormat];
+    format.scale = 1.0;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(2, 2) format:format];
+    UIImage *image = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        [[UIColor redColor] setFill];
+        UIRectFill(CGRectMake(0, 0, 2, 1));
+        [[UIColor blueColor] setFill];
+        UIRectFill(CGRectMake(0, 1, 2, 1));
+    }];
+    XCTAssertEqual(image.imageOrientation, UIImageOrientationUp);
+    CGImageRef top = CGImageCreateWithImageInRect(image.CGImage, CGRectMake(0, 0, 1, 1));
+    CGImageRef bottom = CGImageCreateWithImageInRect(image.CGImage, CGRectMake(0, 1, 1, 1));
+    NSData *topPixel = [self rgbaForImageCrop:top];
+    NSData *bottomPixel = [self rgbaForImageCrop:bottom];
+    CGImageRelease(top);
+    CGImageRelease(bottom);
+    XCTAssertEqual(topPixel.length, (NSUInteger)4);
+    XCTAssertEqual(bottomPixel.length, (NSUInteger)4);
+    if (topPixel.length != 4 || bottomPixel.length != 4) {
+        return;
+    }
+    const uint8_t *topBytes = topPixel.bytes, *bottomBytes = bottomPixel.bytes;
+    XCTAssertGreaterThan(topBytes[0], topBytes[2], @"The top crop must be red");
+    XCTAssertGreaterThan(bottomBytes[2], bottomBytes[0], @"The bottom crop must be blue");
 }
 
 - (void)testTapDeletesHostExactlyOnce {
@@ -948,6 +1042,95 @@ static id FSHFixtureDefaults;
     XCTAssertEqual(self.controller.dismissCount, (NSUInteger)0);
 }
 
+- (void)testReturnKeyLabelsFollowHostTraitsInEveryModeWithoutLabelOnlyRebuild {
+    FSHCountingKeyboardView *keyboard = [[FSHCountingKeyboardView alloc] initWithFrame:CGRectMake(0, 0, 320, 194.4)];
+    for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious),
+                              @(FSHKeyboardLayoutOriginal), @(FSHKeyboardLayoutOriginalNoNumber)]) {
+        keyboard.layout = layout.integerValue;
+        for (NSNumber *mode in @[@(FSHKeyboardModeLetters), @(FSHKeyboardModeSymbols),
+                                @(FSHKeyboardModeSymbolsShift), @(FSHKeyboardModeEmoji)]) {
+            keyboard.mode = mode.integerValue;
+            FSHKeyButton *enter = [keyboard valueForKey:@"enterButton"];
+            XCTAssertNotNil(enter);
+            NSUInteger reloads = keyboard.reloadCount;
+            keyboard.returnKeyType = UIReturnKeySearch;
+            XCTAssertEqualObjects(enter.currentTitle, @"搜尋");
+            XCTAssertEqualObjects(enter.accessibilityLabel, @"搜尋");
+            keyboard.returnKeyType = UIReturnKeyNext;
+            XCTAssertEqualObjects(enter.currentTitle, @"⇥");
+            XCTAssertEqualObjects(enter.accessibilityLabel, @"下一個欄位");
+            XCTAssertEqual([keyboard valueForKey:@"enterButton"], enter);
+            XCTAssertEqual(keyboard.reloadCount, reloads);
+        }
+    }
+    NSArray<NSDictionary<NSString *, id> *> *cases = @[
+        @{@"type": @(UIReturnKeyDefault), @"title": @"換行", @"label": @"換行"},
+        @{@"type": @(UIReturnKeyGo), @"title": @"前往", @"label": @"前往"},
+        @{@"type": @(UIReturnKeyJoin), @"title": @"加入", @"label": @"加入"},
+        @{@"type": @(UIReturnKeyRoute), @"title": @"路線", @"label": @"路線"},
+        @{@"type": @(UIReturnKeySearch), @"title": @"搜尋", @"label": @"搜尋"},
+        @{@"type": @(UIReturnKeySend), @"title": @"傳送", @"label": @"傳送"},
+        @{@"type": @(UIReturnKeyDone), @"title": @"完成", @"label": @"完成"},
+        @{@"type": @(UIReturnKeyContinue), @"title": @"繼續", @"label": @"繼續"},
+        @{@"type": @(UIReturnKeyEmergencyCall), @"title": @"緊急", @"label": @"緊急通話"},
+        @{@"type": @(UIReturnKeyGoogle), @"title": @"搜尋", @"label": @"Google 搜尋"},
+        @{@"type": @(UIReturnKeyYahoo), @"title": @"搜尋", @"label": @"Yahoo 搜尋"},
+        @{@"type": @(UIReturnKeyNext), @"title": @"⇥", @"label": @"下一個欄位"},
+        @{@"type": @999, @"title": @"換行", @"label": @"換行"},
+    ];
+    FSHKeyButton *enter = [keyboard valueForKey:@"enterButton"];
+    NSUInteger reloads = keyboard.reloadCount;
+    for (NSDictionary<NSString *, id> *testCase in cases) {
+        keyboard.returnKeyType = [testCase[@"type"] integerValue];
+        XCTAssertEqualObjects(enter.currentTitle, testCase[@"title"]);
+        XCTAssertEqualObjects(enter.accessibilityLabel, testCase[@"label"]);
+        XCTAssertEqual(keyboard.reloadCount, reloads);
+    }
+
+    FSHKeyButton *controllerEnter = [self.keyboard valueForKey:@"enterButton"];
+    self.proxy.returnKeyType = UIReturnKeySend;
+    [self.controller textDidChange:nil];
+    XCTAssertEqual([self.keyboard valueForKey:@"enterButton"], controllerEnter);
+    XCTAssertEqualObjects(controllerEnter.currentTitle, @"傳送");
+    self.proxy.returnKeyType = UIReturnKeyNext;
+    [self.controller viewDidLayoutSubviews];
+    XCTAssertEqual([self.keyboard valueForKey:@"enterButton"], controllerEnter);
+    XCTAssertEqualObjects(controllerEnter.currentTitle, @"⇥");
+}
+
+- (void)testReturnCommitsCompositionThenForwardsExactlyOneNewlineWithoutDismissing {
+    NSArray<NSNumber *> *types = @[@(UIReturnKeyDefault), @(UIReturnKeyGo), @(UIReturnKeyJoin),
+                                 @(UIReturnKeyRoute), @(UIReturnKeySearch), @(UIReturnKeySend),
+                                 @(UIReturnKeyDone), @(UIReturnKeyContinue), @(UIReturnKeyEmergencyCall),
+                                 @(UIReturnKeyGoogle), @(UIReturnKeyYahoo), @(UIReturnKeyNext), @999];
+    for (NSNumber *mode in @[@(FSHKeyboardModeLetters), @(FSHKeyboardModeSymbols),
+                            @(FSHKeyboardModeSymbolsShift), @(FSHKeyboardModeEmoji)]) {
+        self.keyboard.mode = mode.integerValue;
+        for (NSNumber *type in types) {
+            [self.proxy.text setString:@""];
+            self.proxy.returnKeyType = type.integerValue;
+            [self.controller textDidChange:nil];
+            NSUInteger dismisses = self.controller.dismissCount;
+            [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeEnter output:nil];
+            XCTAssertEqualObjects(self.proxy.text, @"\n", @"Mode %@ return type %@", mode, type);
+            XCTAssertEqual(self.controller.dismissCount, dismisses);
+        }
+    }
+
+    self.keyboard.mode = FSHKeyboardModeLetters;
+    self.proxy.returnKeyType = UIReturnKeyNext;
+    [self.proxy.text setString:@""];
+    [[self rawBuffer] setString:@"abc"];
+    NSUInteger dismisses = self.controller.dismissCount;
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeEnter output:nil];
+    XCTAssertEqualObjects(self.proxy.text, @"abc");
+    XCTAssertEqualObjects([self rawBuffer], @"");
+    XCTAssertEqual(self.controller.dismissCount, dismisses);
+    [self.controller keyboardView:self.keyboard didPressKeyCode:FSHKeyCodeEnter output:nil];
+    XCTAssertEqualObjects(self.proxy.text, @"abc\n");
+    XCTAssertEqual(self.controller.dismissCount, dismisses);
+}
+
 - (void)testBothSymbolPagesRetainUniqueSymbolsAndAddMissingPunctuation {
     NSMutableSet<NSString *> *allOutputs = [NSMutableSet set];
     for (NSNumber *mode in @[@(FSHKeyboardModeSymbols), @(FSHKeyboardModeSymbolsShift)]) {
@@ -1306,6 +1489,59 @@ static id FSHFixtureDefaults;
                   @"The keyboard host view should attach to its scene-backed window");
     XCTAssertEqual(controller.view.window, window);
 
+    // Preserve an unmodified UIButton transition as a control for title-change
+    // snapshot timing; the production Shift path below suppresses animation.
+    FSHKeyButton *baselineTitle = [FSHKeyButton buttonWithType:UIButtonTypeSystem];
+    baselineTitle.frame = CGRectMake(100, 100, 100, 50);
+    baselineTitle.backgroundColor = [UIColor systemGray5Color];
+    [baselineTitle setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
+    [baselineTitle setTitle:@"q" forState:UIControlStateNormal];
+    [window addSubview:baselineTitle];
+    [window layoutIfNeeded];
+    NSPredicate *baselineInitialVisible = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        UIImage *frame = [self snapshotOfWindow:window];
+        return [self titleContrastForButton:baselineTitle inWindow:window image:frame] >= 0.3;
+    }];
+    XCTNSPredicateExpectation *baselineInitial = [[XCTNSPredicateExpectation alloc] initWithPredicate:baselineInitialVisible
+                                                                                                 object:baselineTitle];
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[baselineInitial] timeout:2.0], XCTWaiterResultCompleted);
+    UIImage *baselineBefore = [self snapshotOfWindow:window];
+    XCTAttachment *baselineBeforeAttachment = [XCTAttachment attachmentWithImage:baselineBefore];
+    baselineBeforeAttachment.name = @"Unmodified system button initial title visible";
+    baselineBeforeAttachment.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:baselineBeforeAttachment];
+    NSTimeInterval baselineMutationTime = [NSDate timeIntervalSinceReferenceDate];
+    [baselineTitle setTitle:@"Q" forState:UIControlStateNormal];
+    UIImage *baselineImmediate = [self snapshotOfWindow:window];
+    CGFloat baselineImmediateContrast = [self titleContrastForButton:baselineTitle inWindow:window
+                                                              image:baselineImmediate];
+    CALayer *baselinePresentation = baselineTitle.titleLabel.layer.presentationLayer;
+    NSLog(@"System UIButton title transition after %.3f sec: immediate contrast %.3f; model opacity %.2f; presentation %@; animations %@",
+          [NSDate timeIntervalSinceReferenceDate] - baselineMutationTime,
+          baselineImmediateContrast, baselineTitle.titleLabel.layer.opacity,
+          baselinePresentation ? @(baselinePresentation.opacity) : @"uncommitted",
+          baselineTitle.titleLabel.layer.animationKeys);
+    XCTAttachment *baselineImmediateAttachment = [XCTAttachment attachmentWithImage:baselineImmediate];
+    baselineImmediateAttachment.name = @"Unmodified system button title transition immediate";
+    baselineImmediateAttachment.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:baselineImmediateAttachment];
+    NSPredicate *baselineVisible = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        UIImage *frame = [self snapshotOfWindow:window];
+        return [self titleContrastForButton:baselineTitle inWindow:window image:frame] >= 0.3;
+    }];
+    XCTNSPredicateExpectation *baselineSettled = [[XCTNSPredicateExpectation alloc] initWithPredicate:baselineVisible
+                                                                                                 object:baselineTitle];
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[baselineSettled] timeout:2.0], XCTWaiterResultCompleted);
+    UIImage *baselineSettledImage = [self snapshotOfWindow:window];
+    NSLog(@"System UIButton title settled after %.3f sec: contrast %.3f",
+          [NSDate timeIntervalSinceReferenceDate] - baselineMutationTime,
+          [self titleContrastForButton:baselineTitle inWindow:window image:baselineSettledImage]);
+    XCTAttachment *baselineSettledAttachment = [XCTAttachment attachmentWithImage:baselineSettledImage];
+    baselineSettledAttachment.name = @"Unmodified system button title transition settled";
+    baselineSettledAttachment.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:baselineSettledAttachment];
+    [baselineTitle removeFromSuperview];
+
     FSHShiamyEngine *engine = [[FSHShiamyEngine alloc] init];
     NSError *error = nil;
     XCTAssertTrue([engine loadFromBundle:[NSBundle mainBundle] error:&error], @"%@", error);
@@ -1348,19 +1584,78 @@ static id FSHFixtureDefaults;
                     XCTAssertGreaterThanOrEqual(CGRectGetMinX(button.frame), -0.5);
                     XCTAssertLessThanOrEqual(CGRectGetMaxX(button.frame), CGRectGetWidth(keyboard.bounds) + 0.5);
                     XCTAssertLessThanOrEqual(CGRectGetMaxY(button.frame), CGRectGetHeight(keyboard.bounds) + 0.5);
+                    if (keyboard.mode == FSHKeyboardModeLetters && button.output.length == 1) {
+                        unichar ch = [button.output characterAtIndex:0];
+                        if (ch >= 'a' && ch <= 'z') {
+                            NSString *visibleLetter = (keyboard.shiftOn || keyboard.capsLockOn)
+                                ? button.output.uppercaseString : button.output;
+                            XCTAssertEqualObjects(button.currentTitle, visibleLetter);
+                            XCTAssertEqualObjects(button.titleLabel.text, visibleLetter);
+                            XCTAssertFalse(CGRectIsEmpty(button.titleLabel.frame));
+                        }
+                    }
                 }
             }
-            UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithBounds:window.bounds];
-            __block BOOL rendered = NO;
-            UIImage *snapshot = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-                rendered = [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
-            }];
-            XCTAssertTrue(rendered);
+            if (keyboard.mode == FSHKeyboardModeLetters) {
+                FSHKeyButton *shiftKey = [keyboard valueForKey:@"shiftButton"];
+                NSString *shiftTitle = keyboard.capsLockOn ? @"⇪" : @"⇧";
+                XCTAssertEqualObjects(shiftKey.currentTitle, shiftTitle);
+                XCTAssertEqualObjects(shiftKey.titleLabel.text, shiftTitle);
+                XCTAssertFalse(CGRectIsEmpty(shiftKey.titleLabel.frame));
+            }
+            UIImage *snapshot = [self snapshotOfWindow:window];
+            XCTAssertNotNil(snapshot);
             XCTAttachment *attachment = [XCTAttachment attachmentWithImage:snapshot];
-            attachment.name = [NSString stringWithFormat:@"Production keyboard host harness %@ - %@",
+            attachment.name = [NSString stringWithFormat:@"Production keyboard immediate %@ - %@",
                                appearance[@"name"], style.integerValue == UIUserInterfaceStyleDark ? @"dark" : @"light"];
             attachment.lifetime = XCTAttachmentLifetimeKeepAlways;
             [self addAttachment:attachment];
+            if (keyboard.mode == FSHKeyboardModeLetters) {
+                FSHKeyButton *q = [self keyWithOutput:@"q" inKeyboard:keyboard];
+                CALayer *presentation = q.titleLabel.layer.presentationLayer;
+                NSLog(@"Shift screenshot %@ %@: q model opacity %.2f, presentation %@, animations %@",
+                      appearance[@"name"], style, q.titleLabel.layer.opacity,
+                      presentation ? @(presentation.opacity) : @"uncommitted", q.titleLabel.layer.animationKeys);
+                NSPredicate *visibleTitles = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+                    [window layoutIfNeeded];
+                    UIImage *frame = [self snapshotOfWindow:window];
+                    for (NSArray<FSHKeyButton *> *row in rows) {
+                        for (FSHKeyButton *button in row) {
+                            if (button.output.length == 1) {
+                                unichar ch = [button.output characterAtIndex:0];
+                                if (ch >= 'a' && ch <= 'z' &&
+                                    [self titleContrastForButton:button inWindow:window image:frame] < 0.3) {
+                                    return NO;
+                                }
+                            }
+                        }
+                    }
+                    FSHKeyButton *shiftKey = [keyboard valueForKey:@"shiftButton"];
+                    return [self titleContrastForButton:shiftKey inWindow:window image:frame] >= 0.3;
+                }];
+                XCTNSPredicateExpectation *settled = [[XCTNSPredicateExpectation alloc] initWithPredicate:visibleTitles object:keyboard];
+                XCTAssertEqual([XCTWaiter waitForExpectations:@[settled] timeout:2.0], XCTWaiterResultCompleted);
+                UIImage *settledImage = [self snapshotOfWindow:window];
+                XCTAttachment *settledAttachment = [XCTAttachment attachmentWithImage:settledImage];
+                settledAttachment.name = [NSString stringWithFormat:@"Production keyboard settled %@ - %@",
+                                          appearance[@"name"], style.integerValue == UIUserInterfaceStyleDark ? @"dark" : @"light"];
+                settledAttachment.lifetime = XCTAttachmentLifetimeKeepAlways;
+                [self addAttachment:settledAttachment];
+                for (NSArray<FSHKeyButton *> *row in rows) {
+                    for (FSHKeyButton *button in row) {
+                        if (button.output.length == 1) {
+                            unichar ch = [button.output characterAtIndex:0];
+                            if (ch >= 'a' && ch <= 'z') {
+                                XCTAssertGreaterThan([self titleContrastForButton:button inWindow:window image:snapshot],
+                                                     0.3, @"Missing immediate title for %@ in %@", button.output, appearance[@"name"]);
+                            }
+                        }
+                    }
+                }
+                FSHKeyButton *shiftKey = [keyboard valueForKey:@"shiftButton"];
+                XCTAssertGreaterThan([self titleContrastForButton:shiftKey inWindow:window image:snapshot],
+                                     0.3, @"Missing immediate Shift title in %@", appearance[@"name"]);
+            }
         }
     }
     keyboard.mode = FSHKeyboardModeLetters;
@@ -1425,6 +1720,32 @@ static id FSHFixtureDefaults;
     }
     [settingsHelp sendActionsForControlEvents:UIControlEventTouchUpInside];
     XCTAssertTrue(settingsHelp.hidden);
+    keyboard.mode = FSHKeyboardModeLetters;
+    FSHKeyButton *returnKey = [keyboard valueForKey:@"enterButton"];
+    for (NSNumber *type in @[@(UIReturnKeySearch), @(UIReturnKeyNext)]) {
+        controller.fakeProxy.returnKeyType = type.integerValue;
+        [controller textDidChange:nil];
+        XCTAssertEqual([keyboard valueForKey:@"enterButton"], returnKey);
+        XCTAssertEqualObjects(returnKey.currentTitle, type.integerValue == UIReturnKeyNext ? @"⇥" : @"搜尋");
+        for (NSNumber *style in @[@(UIUserInterfaceStyleLight), @(UIUserInterfaceStyleDark)]) {
+            window.overrideUserInterfaceStyle = style.integerValue;
+            [window layoutIfNeeded];
+            XCTAssertFalse(CGRectIsEmpty(returnKey.titleLabel.frame));
+            XCTAssertLessThanOrEqual(CGRectGetMaxX(returnKey.titleLabel.frame), CGRectGetWidth(returnKey.bounds) + 0.5);
+            UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithBounds:window.bounds];
+            __block BOOL rendered = NO;
+            UIImage *snapshot = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+                rendered = [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
+            }];
+            XCTAssertTrue(rendered);
+            XCTAttachment *attachment = [XCTAttachment attachmentWithImage:snapshot];
+            attachment.name = [NSString stringWithFormat:@"Compact Return %@ - %@",
+                               type.integerValue == UIReturnKeyNext ? @"Next" : @"Search",
+                               style.integerValue == UIUserInterfaceStyleDark ? @"dark" : @"light"];
+            attachment.lifetime = XCTAttachmentLifetimeKeepAlways;
+            [self addAttachment:attachment];
+        }
+    }
     [window endEditing:YES];
     window.hidden = YES;
     [oldKeyWindow makeKeyAndVisible];

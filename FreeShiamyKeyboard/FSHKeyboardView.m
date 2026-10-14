@@ -19,6 +19,7 @@
 @property (nonatomic, strong) FSHKeyButton *deleteButton;
 @property (nonatomic, strong) FSHKeyButton *modeButton;
 @property (nonatomic, strong) FSHKeyButton *emojiButton;
+@property (nonatomic, strong) FSHKeyButton *enterButton;
 @property (nonatomic, assign) BOOL deleteIsPressed;
 
 - (void)configureAlternateActionForButton:(FSHKeyButton *)button
@@ -152,6 +153,14 @@
     [self updateShiftAppearance];
 }
 
+- (void)setReturnKeyType:(UIReturnKeyType)returnKeyType {
+    if (_returnKeyType == returnKeyType) {
+        return;
+    }
+    _returnKeyType = returnKeyType;
+    [self updateReturnKeyAppearance];
+}
+
 - (void)reloadKeys {
     [self cancelActivePress];
     for (NSArray<FSHKeyButton *> *row in self.rowButtons) {
@@ -164,6 +173,7 @@
     self.deleteButton = nil;
     self.modeButton = nil;
     self.emojiButton = nil;
+    self.enterButton = nil;
 
     NSArray<NSArray<FSHKeyDescriptor *> *> *rows = [self keyDescriptorsForMode:self.mode];
     for (NSArray<FSHKeyDescriptor *> *row in rows) {
@@ -176,6 +186,7 @@
         [self.rowButtons addObject:buttons];
     }
     [self updateShiftAppearance];
+    [self updateReturnKeyAppearance];
     [self setNeedsLayout];
 }
 
@@ -425,6 +436,10 @@
     if (descriptor.keyCode == FSHKeyCodeEmoji) {
         self.emojiButton = button;
     }
+    if (descriptor.keyCode == FSHKeyCodeEnter) {
+        self.enterButton = button;
+        button.accessibilityIdentifier = @"key.return";
+    }
 
     if (self.labelTop && !descriptor.isSpecial && descriptor.label.length > 0) {
         button.contentVerticalAlignment = UIControlContentVerticalAlignmentTop;
@@ -579,20 +594,28 @@
 }
 
 - (void)updateShiftAppearance {
-    if (self.mode == FSHKeyboardModeLetters) {
-        BOOL uppercase = self.shiftOn || self.capsLockOn;
-        for (NSArray<FSHKeyButton *> *row in self.rowButtons) {
-            for (FSHKeyButton *button in row) {
-                NSString *output = button.output;
-                if (output.length == 1) {
-                    unichar ch = [output characterAtIndex:0];
-                    if (ch >= 'a' && ch <= 'z') {
-                        [button setTitle:uppercase ? output.uppercaseString : output forState:UIControlStateNormal];
+    // UIKit can animate UIButton title replacement. Shift changes many titles at
+    // once, so keep their visible state in sync with the key backgrounds.
+    [UIView performWithoutAnimation:^{
+        if (self.mode == FSHKeyboardModeLetters) {
+            BOOL uppercase = self.shiftOn || self.capsLockOn;
+            for (NSArray<FSHKeyButton *> *row in self.rowButtons) {
+                for (FSHKeyButton *button in row) {
+                    NSString *output = button.output;
+                    if (output.length == 1) {
+                        unichar ch = [output characterAtIndex:0];
+                        if (ch >= 'a' && ch <= 'z') {
+                            NSString *title = uppercase ? output.uppercaseString : output;
+                            if (![[button titleForState:UIControlStateNormal] isEqualToString:title]) {
+                                [button setTitle:title forState:UIControlStateNormal];
+                                [button layoutIfNeeded];
+                            }
+                        }
                     }
                 }
             }
         }
-    }
+    }];
     if (!self.shiftButton) {
         return;
     }
@@ -636,7 +659,12 @@
         background = [self specialKeyBackgroundColor];
         foreground = [UIColor labelColor];
     }
-    [self.shiftButton setTitle:title forState:UIControlStateNormal];
+    [UIView performWithoutAnimation:^{
+        if (![[self.shiftButton titleForState:UIControlStateNormal] isEqualToString:title]) {
+            [self.shiftButton setTitle:title forState:UIControlStateNormal];
+            [self.shiftButton layoutIfNeeded];
+        }
+    }];
     self.shiftButton.accessibilityLabel = label;
     self.shiftButton.accessibilityValue = value;
     self.shiftButton.accessibilityTraits = UIAccessibilityTraitButton | (active ? UIAccessibilityTraitSelected : 0);
@@ -644,6 +672,39 @@
     [self.shiftButton setTitleColor:foreground forState:UIControlStateNormal];
     [self.shiftButton setTitleColor:foreground forState:UIControlStateHighlighted];
     [self.shiftButton setTitleColor:foreground forState:UIControlStateSelected];
+}
+
+- (void)updateReturnKeyAppearance {
+    if (!self.enterButton) {
+        return;
+    }
+    NSString *title = @"換行";
+    NSString *label = nil;
+    switch (self.returnKeyType) {
+        case UIReturnKeyGo: title = @"前往"; break;
+        case UIReturnKeyJoin: title = @"加入"; break;
+        case UIReturnKeyRoute: title = @"路線"; break;
+        case UIReturnKeySearch: title = @"搜尋"; break;
+        case UIReturnKeySend: title = @"傳送"; break;
+        case UIReturnKeyDone: title = @"完成"; break;
+        case UIReturnKeyContinue: title = @"繼續"; break;
+        case UIReturnKeyEmergencyCall: title = @"緊急"; label = @"緊急通話"; break;
+        case UIReturnKeyGoogle: title = @"搜尋"; label = @"Google 搜尋"; break;
+        case UIReturnKeyYahoo: title = @"搜尋"; label = @"Yahoo 搜尋"; break;
+        case UIReturnKeyNext: title = @"⇥"; label = @"下一個欄位"; break;
+        case UIReturnKeyDefault:
+        default: break;
+    }
+    [UIView performWithoutAnimation:^{
+        if (![[self.enterButton titleForState:UIControlStateNormal] isEqualToString:title]) {
+            [self.enterButton setTitle:title forState:UIControlStateNormal];
+            [self.enterButton layoutIfNeeded];
+        }
+    }];
+    self.enterButton.accessibilityLabel = label ?: title;
+    self.enterButton.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightSemibold];
+    self.enterButton.titleLabel.adjustsFontSizeToFitWidth = YES;
+    self.enterButton.titleLabel.minimumScaleFactor = 0.8;
 }
 
 - (UIColor *)keyboardBackgroundColor {
