@@ -3998,15 +3998,16 @@ static NSString *FSHFixtureSuiteName;
 
     [multi becomeFirstResponder];
     window.frame = CGRectMake(0, 0, 320, 390);
+    // Resizing this window within a portrait scene does not rotate the
+    // simulator keyboard. Validate compact-window caret/layout geometry here;
+    // the installed UI rotation test must prove real keyboard occlusion.
     NSPredicate *compactCaretVisible = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
         [window layoutIfNeeded];
         CGRect guide = panel.view.keyboardLayoutGuide.layoutFrame;
         if (fabs(CGRectGetWidth(window.bounds) - 320.0) > 0.5 ||
             fabs(CGRectGetHeight(window.bounds) - 390.0) > 0.5 ||
             fabs(CGRectGetWidth(panel.view.bounds) - 320.0) > 0.5 ||
-            CGRectGetHeight(panel.view.bounds) > 391.0 ||
-            CGRectGetHeight(guide) <= panel.view.safeAreaInsets.bottom + 100.0 ||
-            CGRectGetMinY(guide) >= CGRectGetHeight(panel.view.bounds) - 100.0) return NO;
+            CGRectGetHeight(panel.view.bounds) > 391.0) return NO;
         UITextPosition *currentCaret = multi.selectedTextRange.end;
         if (!multi.isFirstResponder || !currentCaret || CGRectIsEmpty(scroll.bounds)) return NO;
         CGRect currentRect = [multi convertRect:[multi caretRectForPosition:currentCaret] toView:scroll];
@@ -4018,7 +4019,7 @@ static NSString *FSHFixtureSuiteName;
         initWithPredicate:compactCaretVisible object:multi];
     XCTWaiterResult compactResult = [XCTWaiter waitForExpectations:@[compactReady] timeout:8.0];
     XCTAttachment *compactShot = [XCTAttachment attachmentWithImage:[self snapshotOfWindow:window]];
-    compactShot.name = @"Compact host panel after focused multiline layout";
+    compactShot.name = @"Synthetic compact host-window caret layout";
     compactShot.lifetime = XCTAttachmentLifetimeKeepAlways;
     [self addAttachment:compactShot];
     caret = multi.selectedTextRange.end;
@@ -4030,7 +4031,7 @@ static NSString *FSHFixtureSuiteName;
          NSStringFromCGPoint(scroll.contentOffset),
          NSStringFromCGRect(panel.view.keyboardLayoutGuide.layoutFrame), NSStringFromCGRect(window.bounds),
          NSStringFromCGRect(panel.view.bounds), multi.isFirstResponder]];
-    compactGeometry.name = @"Compact host caret and keyboard-guide geometry";
+    compactGeometry.name = @"Synthetic compact host-window caret and keyboard-guide geometry";
     compactGeometry.lifetime = XCTAttachmentLifetimeKeepAlways;
     [self addAttachment:compactGeometry];
     XCTAssertEqual(compactResult, XCTWaiterResultCompleted,

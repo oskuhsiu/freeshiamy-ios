@@ -25,11 +25,14 @@ if [[ "$(uname -m)" != "arm64" ]]; then
     echo "Expected arm64 macOS runner" | tee -a "$ARTIFACTS/preflight.log"
     exit 1
 fi
+python3 ci/test-installed-geometry-parser.py > "$ARTIFACTS/geometry-parser-selftest.log" 2>&1
 
 # The repository intentionally does not track a developer's signing overrides.
 touch Config/Local.xcconfig
 xcodebuild -list -project freeshiamy-ios.xcodeproj > "$ARTIFACTS/project-list.log" 2>&1
 xcodebuild -help > "$ARTIFACTS/xcodebuild-help.log" 2>&1
+xcrun simctl help ui > "$ARTIFACTS/simctl-ui-help.log" 2>&1 || true
+xcrun simctl list -j devicetypes > "$ARTIFACTS/simctl-device-types.json" 2>&1
 if ! grep -q -- '-testLanguage' "$ARTIFACTS/xcodebuild-help.log" || \
    ! grep -q -- '-testRegion' "$ARTIFACTS/xcodebuild-help.log" || \
    ! grep -q -- '-only-testing:TEST-IDENTIFIER' "$ARTIFACTS/xcodebuild-help.log" || \
@@ -144,11 +147,22 @@ else
 fi
 
 ui_result=0
-run_stage installed-extension InstalledKeyboardSmoke 180 300 || ui_result=$?
+date -u +'%Y-%m-%d %H:%M:%S' > "$ARTIFACTS/installed-stage-start.txt"
+run_stage installed-extension InstalledKeyboardSmoke 300 360 || ui_result=$?
 # Collect extension process diagnostics even when the first UI boundary fails.
 xcrun simctl spawn "$DEVICE_ID" log show --last 30m --style compact --info --debug \
     --predicate 'process == "FreeShiamyKeyboard" OR eventMessage CONTAINS "FreeShiamyKeyboard lifecycle"' \
     > "$ARTIFACTS/installed-extension-process.log" 2>&1 || true
+# This window begins immediately before the black-box installed test, so the
+# host PID and geometry cannot be confused with prior hosted XCTest fixtures.
+xcrun simctl spawn "$DEVICE_ID" log show --start "$(cat "$ARTIFACTS/installed-stage-start.txt")" \
+    --style compact --info --debug \
+    --predicate 'process == "freeshiamy-ios" AND eventMessage CONTAINS "[HostGeometry]"' \
+    > "$ARTIFACTS/installed-host-geometry.log" 2>&1 || true
+host_geometry_result=0
+python3 ci/check-installed-host-geometry.py "$ARTIFACTS/installed-host-geometry.log" \
+    "$ARTIFACTS/installed-extension-attachments" \
+    > "$ARTIFACTS/installed-host-geometry-check.log" 2>&1 || host_geometry_result=$?
 process_observation=missing-inconclusive
 process_result=1
 if grep -Eq "FreeShiamyKeyboard lifecycle bundle=osku.me.freeshiamyios.keyboard pid=[0-9]+ hasFullAccess=NO" "$ARTIFACTS/installed-extension-process.log"; then
@@ -158,6 +172,6 @@ fi
 # Missing unified-log evidence blocks a completed installed-extension claim for
 # this first run. Classify that as inconclusive integration evidence, not a
 # demonstrated keyboard product failure; retained UI evidence diagnoses it.
-printf 'hosted-focused=%s\nhosted-full=%s\nplist=%s\ninstalled-extension=%s\nprocess-log=%s\n' \
-    "$focused_result" "$hosted_result" "$plist_result" "$ui_result" "$process_observation" | tee "$ARTIFACTS/stage-status.txt"
-if [[ "$focused_result" != 0 || "$hosted_result" != 0 || "$plist_result" != 0 || "$ui_result" != 0 || "$process_result" != 0 ]]; then exit 1; fi
+printf 'hosted-focused=%s\nhosted-full=%s\nplist=%s\ninstalled-extension=%s\ninstalled-host-geometry=%s\nprocess-log=%s\n' \
+    "$focused_result" "$hosted_result" "$plist_result" "$ui_result" "$host_geometry_result" "$process_observation" | tee "$ARTIFACTS/stage-status.txt"
+if [[ "$focused_result" != 0 || "$hosted_result" != 0 || "$plist_result" != 0 || "$ui_result" != 0 || "$host_geometry_result" != 0 || "$process_result" != 0 ]]; then exit 1; fi

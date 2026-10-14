@@ -3,6 +3,7 @@
 #import "SettingsViewController.h"
 #import "CodeSearchViewController.h"
 #import <math.h>
+#import <unistd.h>
 
 @interface ViewController () <UITextFieldDelegate, UITextViewDelegate>
 
@@ -13,6 +14,10 @@
 @property (nonatomic, strong) UITextView *multiLineView;
 @property (nonatomic, strong) NSMutableArray<UIButton *> *actionButtons;
 @property (nonatomic, strong) NSMutableArray<NSLayoutConstraint *> *actionButtonHeights;
+#if DEBUG
+@property (nonatomic, copy) NSString *lastLoggedHostGeometry;
+- (void)logHostGeometryIfChanged;
+#endif
 
 @end
 
@@ -123,7 +128,40 @@
             [self scrollFocusedInputIntoView];
         }
     }
+#if DEBUG
+    [self logHostGeometryIfChanged];
+#endif
 }
+
+#if DEBUG
+- (void)logHostGeometryIfChanged {
+    UIWindow *window = self.view.window;
+    NSString *runID = NSProcessInfo.processInfo.environment[@"FSH_INSTALLED_SMOKE_RUN_ID"];
+    if (!window || runID.length == 0) return;
+    CGRect guide = [self.view convertRect:self.view.keyboardLayoutGuide.layoutFrame toView:window];
+    CGRect viewport = [self.scrollView convertRect:self.scrollView.bounds toView:window];
+    CGRect caret = CGRectNull;
+    NSString *responder = @"none";
+    if (self.multiLineView.isFirstResponder) {
+        responder = @"multiline";
+        UITextPosition *position = self.multiLineView.selectedTextRange.end;
+        if (position) {
+            caret = [self.multiLineView convertRect:[self.multiLineView caretRectForPosition:position]
+                                              toView:window];
+        }
+    } else if (self.singleLineField.isFirstResponder) {
+        responder = @"singleline";
+        caret = [self.singleLineField convertRect:self.singleLineField.bounds toView:window];
+    }
+    NSString *geometry = [NSString stringWithFormat:@"scene=%@ window=%@ viewport=%@ guide=%@ caret=%@ responder=%@",
+                          NSStringFromCGSize(window.windowScene.coordinateSpace.bounds.size),
+                          NSStringFromCGRect(window.bounds), NSStringFromCGRect(viewport),
+                          NSStringFromCGRect(guide), NSStringFromCGRect(caret), responder];
+    if ([geometry isEqualToString:self.lastLoggedHostGeometry]) return;
+    self.lastLoggedHostGeometry = geometry;
+    NSLog(@"[HostGeometry] run=%@ pid=%d %@", runID, getpid(), geometry);
+}
+#endif
 
 - (void)viewWillTransitionToSize:(CGSize)size
        withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
@@ -153,6 +191,9 @@
         return;
     }
     [self.scrollView scrollRectToVisible:CGRectInset(target, 0.0, -8.0) animated:NO];
+#if DEBUG
+    [self logHostGeometryIfChanged];
+#endif
 }
 
 - (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {

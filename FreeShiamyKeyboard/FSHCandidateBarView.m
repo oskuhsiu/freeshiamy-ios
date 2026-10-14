@@ -405,6 +405,10 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
         [self.moreContainer.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
     ]];
     self.topBarHeightConstraint = [self.topBar.heightAnchor constraintEqualToConstant:self.barHeight];
+    // These are sizing requests, not a minimum input-view height. A host can
+    // shrink between layout passes while the previous expanded More height is
+    // still installed; required child heights would force the host back up.
+    self.topBarHeightConstraint.priority = UILayoutPriorityDefaultHigh;
     self.topBarHeightConstraint.active = YES;
     self.moreButtonHeightConstraint = [self.moreButton.heightAnchor constraintEqualToConstant:self.barHeight];
     self.moreButtonHeightConstraint.active = YES;
@@ -418,6 +422,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     self.scrollTrailingWithMore.active = YES;
 
     self.moreHeightConstraint = [self.moreContainer.heightAnchor constraintEqualToConstant:0.0];
+    self.moreHeightConstraint.priority = UILayoutPriorityDefaultHigh;
     self.moreHeightConstraint.active = YES;
 
     [NSLayoutConstraint activateConstraints:@[
