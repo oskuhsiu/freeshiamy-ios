@@ -201,7 +201,7 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     self.rawButton.layer.cornerRadius = 6.0;
     self.rawButton.backgroundColor = [UIColor systemGray5Color];
     [self.rawButton setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
-    [self.rawButton setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [self.rawButton setContentHuggingPriority:UILayoutPriorityDefaultHigh forAxis:UILayoutConstraintAxisHorizontal];
     [self.rawButton setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
     [self.rawButton addTarget:self action:@selector(handleRawTap) forControlEvents:UIControlEventTouchUpInside];
     [self.topBar addSubview:self.rawButton];
@@ -281,8 +281,8 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 
         [self.moreButton.trailingAnchor constraintEqualToAnchor:self.candidateArea.trailingAnchor],
         [self.moreButton.centerYAnchor constraintEqualToAnchor:self.candidateArea.centerYAnchor],
-        [self.moreButton.widthAnchor constraintEqualToConstant:32.0],
-        [self.moreButton.heightAnchor constraintEqualToConstant:28.0],
+        [self.moreButton.widthAnchor constraintEqualToConstant:44.0],
+        [self.moreButton.heightAnchor constraintEqualToConstant:kFSHCandidateBarHeight],
 
         [self.hintLabel.leadingAnchor constraintEqualToAnchor:self.rawButton.trailingAnchor constant:8.0],
         [self.hintLabel.trailingAnchor constraintEqualToAnchor:self.topBar.trailingAnchor constant:-8.0],

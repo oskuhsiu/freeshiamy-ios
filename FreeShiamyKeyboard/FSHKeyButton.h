@@ -10,6 +10,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) CGFloat weight;
 @property (nonatomic, copy, nullable) void (^accessibilityActivationHandler)(void);
 @property (nonatomic, copy, nullable) NSString *alternateHint;
+@property (nonatomic, assign) UIEdgeInsets hitAreaOutsets;
 
 @end
 

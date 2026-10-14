@@ -494,18 +494,28 @@
         NSArray<FSHKeyButton *> *row = self.rowButtons[rowIndex];
         CGFloat rowInsetUnitsLeft = 0.0;
         CGFloat rowInsetUnitsRight = 0.0;
-        BOOL shrinkDeleteHalf = NO;
+        BOOL growDeleteHalf = NO;
+        BOOL growShiftHalf = NO;
         BOOL isOriginal = (self.layout == FSHKeyboardLayoutOriginal || self.layout == FSHKeyboardLayoutOriginalNoNumber);
         BOOL isOriginalARow = NO;
-        if (self.mode == FSHKeyboardModeLetters && self.leftShift && self.layout != FSHKeyboardLayoutOriginal && self.layout != FSHKeyboardLayoutOriginalNoNumber) {
+        if (self.mode == FSHKeyboardModeLetters && !isOriginal) {
             FSHKeyButton *first = row.firstObject;
             NSString *output = first.output;
             if ([output isEqualToString:@"1"] || [output isEqualToString:@"q"]) {
-                rowInsetUnitsLeft = 0.5;
-                rowInsetUnitsRight = 0.5;
+                if ([output isEqualToString:@"1"]) {
+                    // The number row is independent of the QAZ/Delete preference.
+                    rowInsetUnitsLeft = 0.5;
+                    rowInsetUnitsRight = 0.5;
+                } else {
+                    rowInsetUnitsLeft = self.leftShift ? 0.0 : 0.5;
+                    rowInsetUnitsRight = self.leftShift ? 1.0 : 0.5;
+                }
             } else if ([output isEqualToString:@"a"]) {
-                rowInsetUnitsLeft = 1.0;
-                shrinkDeleteHalf = YES;
+                rowInsetUnitsLeft = self.leftShift ? 0.5 : 1.0;
+                growDeleteHalf = self.leftShift;
+            } else if (first.keyCode == FSHKeyCodeShift) {
+                growShiftHalf = !self.leftShift;
+                rowInsetUnitsRight = self.leftShift ? 0.5 : 0.0;
             }
         }
         if (isOriginal) {
@@ -515,8 +525,9 @@
         CGFloat totalWeight = 0.0;
         for (FSHKeyButton *button in row) {
             CGFloat weight = button.weight;
-            if (shrinkDeleteHalf && button.keyCode == FSHKeyCodeDelete) {
-                weight = MAX(0.5, weight - 0.5);
+            if ((growDeleteHalf && button.keyCode == FSHKeyCodeDelete) ||
+                (growShiftHalf && button.keyCode == FSHKeyCodeShift)) {
+                weight += 0.5;
             }
             totalWeight += weight;
         }
@@ -532,13 +543,22 @@
         CGFloat adjustedUnitWidth = totalWeight > 0 ? (adjustedAvailableWidth / totalWeight) : 0.0;
         CGFloat x = sideInset + rowInsetLeft;
         CGFloat y = (rowHeight + rowGap) * rowIndex;
-        for (FSHKeyButton *button in row) {
+        for (NSUInteger keyIndex = 0; keyIndex < row.count; keyIndex++) {
+            FSHKeyButton *button = row[keyIndex];
             CGFloat weight = button.weight;
-            if (shrinkDeleteHalf && button.keyCode == FSHKeyCodeDelete) {
-                weight = MAX(0.5, weight - 0.5);
+            if ((growDeleteHalf && button.keyCode == FSHKeyCodeDelete) ||
+                (growShiftHalf && button.keyCode == FSHKeyCodeShift)) {
+                weight += 0.5;
             }
             CGFloat width = (totalWeight > 0) ? adjustedUnitWidth * weight : 0;
             button.frame = CGRectMake(x, y, width, rowHeight);
+            CGFloat left = (keyIndex == 0) ? MAX(0.0, x) : hGap * 0.5;
+            CGFloat right = (keyIndex + 1 == row.count)
+                ? MAX(0.0, totalWidth - CGRectGetMaxX(button.frame)) : hGap * 0.5;
+            CGFloat top = (rowIndex == 0) ? MAX(0.0, y) : rowGap * 0.5;
+            CGFloat bottom = (rowIndex + 1 == rowsCount)
+                ? MAX(0.0, totalHeight - CGRectGetMaxY(button.frame)) : rowGap * 0.5;
+            button.hitAreaOutsets = UIEdgeInsetsMake(top, left, bottom, right);
             x += width + hGap;
         }
     }

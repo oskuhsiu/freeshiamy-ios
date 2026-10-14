@@ -554,6 +554,197 @@ static id FSHFixtureDefaults;
     return nil;
 }
 
+- (void)testQAZDeletePreferenceShiftsAllThreeLettersAndKeepsDeleteReachable {
+    for (NSNumber *width in @[@320, @375, @393, @768]) {
+        for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious)]) {
+            for (NSNumber *numbers in @[@NO, @YES]) {
+                for (NSNumber *globe in @[@NO, @YES]) {
+                    FSHKeyboardView *keyboard = [[FSHKeyboardView alloc]
+                        initWithFrame:CGRectMake(0, 0, width.doubleValue, 220)];
+                    keyboard.layout = layout.integerValue;
+                    keyboard.showNumberRow = numbers.boolValue;
+                    keyboard.showsGlobe = globe.boolValue;
+                    keyboard.leftShift = NO;
+                    [keyboard layoutIfNeeded];
+                    FSHKeyButton *q = [self keyWithOutput:@"q" inKeyboard:keyboard];
+                    FSHKeyButton *a = [self keyWithOutput:@"a" inKeyboard:keyboard];
+                    FSHKeyButton *z = [self keyWithOutput:@"z" inKeyboard:keyboard];
+                    FSHKeyButton *delete = [keyboard valueForKey:@"deleteButton"];
+                    FSHKeyButton *shift = [keyboard valueForKey:@"shiftButton"];
+                    FSHKeyButton *number = [self keyWithOutput:@"1" inKeyboard:keyboard];
+                    XCTAssertNotNil(q);
+                    XCTAssertNotNil(a);
+                    XCTAssertNotNil(z);
+                    XCTAssertNotNil(delete);
+                    XCTAssertNotNil(shift);
+                    if (numbers.boolValue) {
+                        XCTAssertNotNil(number);
+                    }
+                    NSArray<NSArray<FSHKeyButton *> *> *rows = [keyboard valueForKey:@"rowButtons"];
+                    NSMutableArray<NSValue *> *bottomFrames = [NSMutableArray array];
+                    for (FSHKeyButton *button in rows.lastObject) {
+                        [bottomFrames addObject:[NSValue valueWithCGRect:button.frame]];
+                    }
+                    void (^assertValidGeometry)(void) = ^{
+                        for (NSArray<FSHKeyButton *> *row in rows) {
+                            CGFloat previousRight = 0;
+                            for (FSHKeyButton *button in row) {
+                                XCTAssertTrue(isfinite(CGRectGetMinX(button.frame)));
+                                XCTAssertTrue(isfinite(CGRectGetWidth(button.frame)));
+                                XCTAssertGreaterThan(CGRectGetWidth(button.frame), 0);
+                                XCTAssertGreaterThanOrEqual(CGRectGetMinX(button.frame), previousRight - 0.5);
+                                XCTAssertLessThanOrEqual(CGRectGetMaxX(button.frame), width.doubleValue + 0.5);
+                                previousRight = CGRectGetMaxX(button.frame);
+                            }
+                        }
+                    };
+                    assertValidGeometry();
+                    CGRect qBefore = q.frame, aBefore = a.frame, zBefore = z.frame;
+                    CGRect deleteBefore = delete.frame, numberBefore = number.frame;
+                    keyboard.leftShift = YES;
+                    [keyboard layoutIfNeeded];
+                    XCTAssertEqualWithAccuracy(CGRectGetMinX(qBefore) - CGRectGetMinX(q.frame),
+                                               CGRectGetWidth(qBefore) * 0.5, 0.5);
+                    XCTAssertEqualWithAccuracy(CGRectGetMinX(aBefore) - CGRectGetMinX(a.frame),
+                                               CGRectGetWidth(aBefore) * 0.5, 0.5);
+                    XCTAssertEqualWithAccuracy(CGRectGetMinX(zBefore) - CGRectGetMinX(z.frame),
+                                               CGRectGetWidth(zBefore) * 0.5, 0.5);
+                    XCTAssertEqualWithAccuracy(CGRectGetWidth(q.frame), CGRectGetWidth(qBefore), 0.5);
+                    XCTAssertEqualWithAccuracy(CGRectGetWidth(a.frame), CGRectGetWidth(aBefore), 0.5);
+                    XCTAssertEqualWithAccuracy(CGRectGetWidth(z.frame), CGRectGetWidth(zBefore), 0.5);
+                    XCTAssertEqualWithAccuracy(CGRectGetWidth(delete.frame) - CGRectGetWidth(deleteBefore),
+                                               CGRectGetWidth(aBefore) * 0.5, 0.5);
+                    XCTAssertEqualWithAccuracy(CGRectGetMaxX(delete.frame), CGRectGetMaxX(deleteBefore), 0.5);
+                    if (numbers.boolValue) {
+                        XCTAssertTrue(CGRectEqualToRect(numberBefore, number.frame));
+                    }
+                    NSUInteger bottomIndex = 0;
+                    for (FSHKeyButton *button in rows.lastObject) {
+                        XCTAssertTrue(CGRectEqualToRect(button.frame, bottomFrames[bottomIndex++].CGRectValue));
+                    }
+                    assertValidGeometry();
+                }
+            }
+        }
+    }
+}
+
+- (void)testQAZDeletePreferenceLeavesOriginalAndNonLetterModesUnchanged {
+    NSArray<NSDictionary<NSString *, NSNumber *> *> *cases = @[
+        @{@"layout": @(FSHKeyboardLayoutOriginal), @"mode": @(FSHKeyboardModeLetters)},
+        @{@"layout": @(FSHKeyboardLayoutOriginalNoNumber), @"mode": @(FSHKeyboardModeLetters)},
+        @{@"layout": @(FSHKeyboardLayoutStandard), @"mode": @(FSHKeyboardModeSymbols)},
+        @{@"layout": @(FSHKeyboardLayoutStandard), @"mode": @(FSHKeyboardModeSymbolsShift)},
+        @{@"layout": @(FSHKeyboardLayoutStandard), @"mode": @(FSHKeyboardModeEmoji)},
+    ];
+    for (NSDictionary<NSString *, NSNumber *> *testCase in cases) {
+        FSHKeyboardView *keyboard = [[FSHKeyboardView alloc] initWithFrame:CGRectMake(0, 0, 320, 220)];
+        keyboard.layout = testCase[@"layout"].integerValue;
+        keyboard.mode = testCase[@"mode"].integerValue;
+        keyboard.leftShift = NO;
+        [keyboard layoutIfNeeded];
+        NSArray<NSArray<FSHKeyButton *> *> *rows = [keyboard valueForKey:@"rowButtons"];
+        NSMutableArray<NSValue *> *frames = [NSMutableArray array];
+        for (NSArray<FSHKeyButton *> *row in rows) {
+            for (FSHKeyButton *button in row) {
+                [frames addObject:[NSValue valueWithCGRect:button.frame]];
+            }
+        }
+        keyboard.leftShift = YES;
+        [keyboard layoutIfNeeded];
+        NSUInteger index = 0;
+        for (NSArray<FSHKeyButton *> *row in rows) {
+            for (FSHKeyButton *button in row) {
+                XCTAssertTrue(CGRectEqualToRect(button.frame, frames[index++].CGRectValue),
+                              @"Unexpected movement in %@", testCase);
+            }
+        }
+    }
+}
+
+- (void)testNarrowKeyboardHitMapAssignsEachGapToOneNeighbor {
+    for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious),
+                              @(FSHKeyboardLayoutOriginal), @(FSHKeyboardLayoutOriginalNoNumber)]) {
+        for (NSNumber *mode in @[@(FSHKeyboardModeLetters), @(FSHKeyboardModeSymbols),
+                                @(FSHKeyboardModeSymbolsShift), @(FSHKeyboardModeEmoji)]) {
+            for (NSNumber *leftShift in @[@NO, @YES]) {
+                for (NSNumber *globe in @[@NO, @YES]) {
+                    FSHKeyboardView *keyboard = [[FSHKeyboardView alloc] initWithFrame:CGRectMake(0, 0, 320, 220)];
+                    keyboard.layout = layout.integerValue;
+                    keyboard.mode = mode.integerValue;
+                    keyboard.leftShift = leftShift.boolValue;
+                    keyboard.showsGlobe = globe.boolValue;
+                    [keyboard layoutIfNeeded];
+                    FSHKeyButton *delete = [keyboard valueForKey:@"deleteButton"];
+                    FSHKeyButton *enter = [keyboard valueForKey:@"enterButton"];
+                    XCTAssertNotNil(delete);
+                    XCTAssertNotNil(enter);
+                    NSArray<NSArray<FSHKeyButton *> *> *rows = [keyboard valueForKey:@"rowButtons"];
+                    NSMutableArray<NSValue *> *hitRects = [NSMutableArray array];
+                    for (NSUInteger rowIndex = 0; rowIndex < rows.count; rowIndex++) {
+                        NSArray<FSHKeyButton *> *row = rows[rowIndex];
+                        CGFloat midY = CGRectGetMidY(row.firstObject.frame);
+                        XCTAssertEqual([keyboard hitTest:CGPointMake(0.5, midY) withEvent:nil], row.firstObject);
+                        XCTAssertEqual([keyboard hitTest:CGPointMake(319.5, midY) withEvent:nil], row.lastObject);
+                        for (NSUInteger index = 0; index < row.count; index++) {
+                            FSHKeyButton *button = row[index];
+                            UIEdgeInsets outsets = button.hitAreaOutsets;
+                            CGRect hit = CGRectMake(CGRectGetMinX(button.frame) - outsets.left,
+                                                    CGRectGetMinY(button.frame) - outsets.top,
+                                                    CGRectGetWidth(button.frame) + outsets.left + outsets.right,
+                                                    CGRectGetHeight(button.frame) + outsets.top + outsets.bottom);
+                            [hitRects addObject:[NSValue valueWithCGRect:hit]];
+                            XCTAssertGreaterThan(CGRectGetWidth(hit), 0);
+                            XCTAssertGreaterThan(CGRectGetHeight(hit), 0);
+                            XCTAssertGreaterThanOrEqual(CGRectGetMinX(hit), -0.5);
+                            XCTAssertLessThanOrEqual(CGRectGetMaxX(hit), 320.5);
+                            XCTAssertEqual([keyboard hitTest:CGPointMake(CGRectGetMidX(button.frame), midY) withEvent:nil], button);
+                            if (index + 1 < row.count) {
+                                FSHKeyButton *next = row[index + 1];
+                                CGFloat gap = CGRectGetMinX(next.frame) - CGRectGetMaxX(button.frame);
+                                if (gap > 0.4) {
+                                    CGFloat boundary = CGRectGetMaxX(button.frame) + gap * 0.5;
+                                    XCTAssertEqual([keyboard hitTest:CGPointMake(boundary - 0.05, midY) withEvent:nil], button);
+                                    XCTAssertEqual([keyboard hitTest:CGPointMake(boundary + 0.05, midY) withEvent:nil], next);
+                                    UIView *owner = [keyboard hitTest:CGPointMake(boundary, midY) withEvent:nil];
+                                    XCTAssertTrue(owner == button || owner == next);
+                                }
+                            }
+                        }
+                        if (rowIndex + 1 < rows.count) {
+                            NSArray<FSHKeyButton *> *nextRow = rows[rowIndex + 1];
+                            CGFloat gap = CGRectGetMinY(nextRow.firstObject.frame) - CGRectGetMaxY(row.firstObject.frame);
+                            if (gap > 0.4) {
+                                CGFloat boundary = CGRectGetMaxY(row.firstObject.frame) + gap * 0.5;
+                                UIView *upper = [keyboard hitTest:CGPointMake(160, boundary - 0.05) withEvent:nil];
+                                UIView *lower = [keyboard hitTest:CGPointMake(160, boundary + 0.05) withEvent:nil];
+                                XCTAssertTrue([row containsObject:upper]);
+                                XCTAssertTrue([nextRow containsObject:lower]);
+                            }
+                        }
+                    }
+                    for (NSUInteger i = 0; i < hitRects.count; i++) {
+                        for (NSUInteger j = i + 1; j < hitRects.count; j++) {
+                            CGRect overlap = CGRectIntersection(hitRects[i].CGRectValue, hitRects[j].CGRectValue);
+                            XCTAssertFalse(CGRectGetWidth(overlap) > 0.01 && CGRectGetHeight(overlap) > 0.01,
+                                           @"Hit areas overlap in mode %@ layout %@ at %@ and %@", mode, layout,
+                                           hitRects[i], hitRects[j]);
+                        }
+                    }
+                    XCTAssertNil([keyboard hitTest:CGPointMake(-0.1, 110) withEvent:nil]);
+                    XCTAssertNil([keyboard hitTest:CGPointMake(320.1, 110) withEvent:nil]);
+                    CGPoint center = CGPointMake(CGRectGetMidX(delete.frame), CGRectGetMidY(delete.frame));
+                    delete.hidden = YES;
+                    XCTAssertNotEqual([keyboard hitTest:center withEvent:nil], delete);
+                    delete.hidden = NO;
+                    delete.userInteractionEnabled = NO;
+                    XCTAssertNotEqual([keyboard hitTest:center withEvent:nil], delete);
+                }
+            }
+        }
+    }
+}
+
 - (void)testShiftStatesHaveDistinctLabelsAndKeepLetterGeometry {
     FSHKeyboardView *keyboard = [[FSHKeyboardView alloc] initWithFrame:CGRectMake(0, 0, 375, 216)];
     for (NSNumber *layout in @[@(FSHKeyboardLayoutStandard), @(FSHKeyboardLayoutStandardSpacious),
@@ -956,7 +1147,15 @@ static id FSHFixtureDefaults;
                     XCTAssertGreaterThanOrEqual(CGRectGetMinY(button.titleLabel.frame), -0.5);
                     XCTAssertLessThanOrEqual(CGRectGetMaxX(button.titleLabel.frame), CGRectGetWidth(button.bounds) + 0.5);
                     XCTAssertLessThanOrEqual(CGRectGetMaxY(button.titleLabel.frame), CGRectGetHeight(button.bounds) + 0.5);
-                    XCTAssertTrue(((UILongPressGestureRecognizer *)button.gestureRecognizers.firstObject).cancelsTouchesInView);
+                    NSMutableArray<UILongPressGestureRecognizer *> *appLongPresses = [NSMutableArray array];
+                    for (UIGestureRecognizer *recognizer in button.gestureRecognizers) {
+                        if ([recognizer isKindOfClass:UILongPressGestureRecognizer.class] &&
+                            fabs(((UILongPressGestureRecognizer *)recognizer).minimumPressDuration - 0.4) < 0.001) {
+                            [appLongPresses addObject:(UILongPressGestureRecognizer *)recognizer];
+                        }
+                    }
+                    XCTAssertEqual(appLongPresses.count, (NSUInteger)1, @"Expected the app's 0.4-second alternate-action recognizer");
+                    XCTAssertTrue(appLongPresses.firstObject.cancelsTouchesInView);
                 }
             }
         }
@@ -1260,6 +1459,7 @@ static id FSHFixtureDefaults;
                               NSStringFromCGRect(more.frame)];
         XCTAssertGreaterThan(CGRectGetWidth(raw.bounds), 0.0, @"%@", geometry);
         XCTAssertGreaterThan(CGRectGetWidth(area.bounds), 0.0, @"%@", geometry);
+        XCTAssertLessThan(CGRectGetWidth(raw.bounds), 375.0 * 0.2, @"Short raw text should keep its intrinsic width: %@", geometry);
         NSLayoutConstraint *withMore = [bar valueForKey:@"scrollTrailingWithMore"];
         NSLayoutConstraint *withoutMore = [bar valueForKey:@"scrollTrailingWithoutMore"];
         XCTAssertNotEqual(withMore.active, withoutMore.active);
@@ -1271,9 +1471,14 @@ static id FSHFixtureDefaults;
                                        @"%@", geometry);
         } else {
             XCTAssertFalse(more.hidden);
+            XCTAssertEqualWithAccuracy(CGRectGetWidth(more.bounds), 44.0, 0.5, @"%@", geometry);
+            XCTAssertEqualWithAccuracy(CGRectGetHeight(more.bounds), bar.barHeight, 0.5, @"%@", geometry);
+            CGPoint moreCenter = [more convertPoint:CGPointMake(CGRectGetMidX(more.bounds), CGRectGetMidY(more.bounds))
+                                            toView:bar];
+            XCTAssertEqual([bar hitTest:moreCenter withEvent:nil], more);
             XCTAssertEqualWithAccuracy(CGRectGetMaxX(scroll.frame), CGRectGetMinX(more.frame) - 4.0, 0.5,
                                        @"%@", geometry);
-            XCTAssertEqualWithAccuracy(CGRectGetWidth(area.bounds) - CGRectGetWidth(scroll.frame), 36.0, 0.5,
+            XCTAssertEqualWithAccuracy(CGRectGetWidth(area.bounds) - CGRectGetWidth(scroll.frame), 48.0, 0.5,
                                        @"%@", geometry);
         }
     }

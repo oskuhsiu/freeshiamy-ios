@@ -1,10 +1,22 @@
 #import "FSHKeyButton.h"
+#import <math.h>
 
 @interface FSHKeyButton ()
 @property (nonatomic, strong) UILabel *alternateHintLabel;
 @end
 
 @implementation FSHKeyButton
+
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
+    if (CGRectIsEmpty(self.bounds) || !isfinite(CGRectGetWidth(self.bounds)) ||
+        !isfinite(CGRectGetHeight(self.bounds)) || !isfinite(point.x) || !isfinite(point.y)) {
+        return NO;
+    }
+    CGRect hitBounds = CGRectMake(-self.hitAreaOutsets.left, -self.hitAreaOutsets.top,
+                                  CGRectGetWidth(self.bounds) + self.hitAreaOutsets.left + self.hitAreaOutsets.right,
+                                  CGRectGetHeight(self.bounds) + self.hitAreaOutsets.top + self.hitAreaOutsets.bottom);
+    return CGRectContainsPoint(hitBounds, point);
+}
 
 - (void)setAlternateHint:(NSString *)alternateHint {
     _alternateHint = [alternateHint copy];
