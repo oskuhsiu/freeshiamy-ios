@@ -94,6 +94,29 @@
     return first;
 }
 
+- (XCUIElement *)observedInputSwitcherCell:(NSString *)exactLabel
+                                     stage:(NSString *)stage
+                               application:(XCUIApplication *)application {
+    XCUIElementQuery *tables = [application.tables matchingIdentifier:@"InputSwitcherTable"];
+    XCUIElementQuery *cells = [tables.cells matchingPredicate:
+        [NSPredicate predicateWithFormat:@"label == %@", exactLabel]];
+    XCUIElement *cell = cells.firstMatch;
+    NSPredicate *ready = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return tables.count == 1 && cells.count == 1 &&
+               [self isOnScreen:cell application:application] && cell.isHittable;
+    }];
+    XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:ready object:cell];
+    if ([XCTWaiter waitForExpectations:@[expectation] timeout:5.0] != XCTWaiterResultCompleted) {
+        [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:application];
+        XCTFail(@"%@: expected one visible, hittable %@ cell in InputSwitcherTable; found %lu tables, %lu cells",
+                stage, exactLabel, (unsigned long)tables.count, (unsigned long)cells.count);
+        return nil;
+    }
+    [self capture:stage application:application];
+    return cell;
+}
+
 - (XCUIElement *)settingsRowWithLabels:(NSArray<NSString *> *)labels
                            identifier:(NSString *)identifier
                                 stage:(NSString *)stage
@@ -328,9 +351,8 @@
         observedSystemSwitcherLabel = [systemGlobe.label copy];
         [systemGlobe pressForDuration:1.2];
         [self capture:@"System input-mode picker open" application:host];
-        XCUIElement *choice = [self requireUnique:[host.buttons matchingPredicate:
-            [NSPredicate predicateWithFormat:@"label CONTAINS %@", @"FreeShiamy"]]
-                                              stage:@"FreeShiamy in system picker" application:host];
+        XCUIElement *choice = [self observedInputSwitcherCell:@"FreeShiamy — freeshiamy-ios, Chinese"
+                                                       stage:@"FreeShiamy in system picker" application:host];
         if (!choice) return;
         [choice tap];
     }
@@ -446,9 +468,8 @@
         application:host];
     [switcher pressForDuration:1.2];
     [self capture:@"Extension system input-mode picker open" application:host];
-    XCUIElement *other = [self requireUnique:[host.buttons matchingPredicate:
-        [NSPredicate predicateWithFormat:@"label CONTAINS %@", @"English"]]
-                                        stage:@"System English keyboard in picker" application:host];
+    XCUIElement *other = [self observedInputSwitcherCell:@"English (US)"
+                                                  stage:@"System English keyboard in picker" application:host];
     if (!other) return;
     [other tap];
     [self capture:@"Switched away via system picker" application:host];

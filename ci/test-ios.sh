@@ -122,6 +122,7 @@ run_stage hosted-focused freeshiamy-ios 120 180 \
     '-only-testing:KeyboardInputTests/KeyboardInputTests/testCandidateAccessibilityDescribesCodeExactnessAndRealShortcutsAcrossContexts' \
     '-only-testing:KeyboardInputTests/KeyboardInputTests/testHostActionTitlesWrapInAttachedAccessibilityViewport' \
     '-only-testing:KeyboardInputTests/KeyboardInputTests/testHostPanelScrollsFocusedFieldsAboveSceneBackedKeyboard' \
+    '-only-testing:KeyboardInputTests/KeyboardInputTests/testHostCodeSearchRendersInAttachedWindow' \
     || focused_result=$?
 hosted_result=skipped
 if [[ "$focused_result" == 0 ]]; then

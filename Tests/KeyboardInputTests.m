@@ -3827,21 +3827,59 @@ static NSString *FSHFixtureSuiteName;
     [navigation setOverrideTraitCollection:largeText forChildViewController:search];
     window.frame = CGRectMake(0.0, 0.0, 320.0, 390.0);
     XCTAssertTrue([queryField becomeFirstResponder]);
+    CFAbsoluteTime compactStart = CFAbsoluteTimeGetCurrent();
+    __block CFAbsoluteTime priorEvaluation = compactStart;
+    __block NSTimeInterval maximumEvaluationGap = 0.0;
+    __block NSUInteger compactEvaluations = 0;
+    NSMutableArray<NSString *> *compactStates = [NSMutableArray array];
     NSPredicate *compactReadyPredicate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        CFAbsoluteTime evaluationStart = CFAbsoluteTimeGetCurrent();
+        maximumEvaluationGap = MAX(maximumEvaluationGap, evaluationStart - priorEvaluation);
+        priorEvaluation = evaluationStart;
+        compactEvaluations++;
         [window layoutIfNeeded];
         CGRect query = [queryField convertRect:queryField.bounds toView:scrollView];
         CGFloat top = scrollView.contentOffset.y;
         CGFloat bottom = top + CGRectGetHeight(scrollView.bounds);
-        return search.view.window == window && queryField.isFirstResponder &&
-               fabs(CGRectGetWidth(window.bounds) - 320.0) < 0.5 &&
-               fabs(CGRectGetHeight(window.bounds) - 390.0) < 0.5 &&
-               [search.traitCollection.preferredContentSizeCategory isEqualToString:UIContentSizeCategoryAccessibilityMedium] &&
-               !CGRectIsEmpty(queryField.bounds) && !CGRectIsEmpty(scrollView.bounds) &&
-               CGRectGetMinY(query) >= top - 1.0 && CGRectGetMaxY(query) <= bottom + 1.0;
+        BOOL attached = search.view.window == window;
+        BOOL focused = queryField.isFirstResponder;
+        BOOL compact = fabs(CGRectGetWidth(window.bounds) - 320.0) < 0.5 &&
+                       fabs(CGRectGetHeight(window.bounds) - 390.0) < 0.5;
+        BOOL traitReady = [search.traitCollection.preferredContentSizeCategory
+                           isEqualToString:UIContentSizeCategoryAccessibilityMedium];
+        BOOL framesReady = !CGRectIsEmpty(queryField.bounds) && !CGRectIsEmpty(scrollView.bounds);
+        BOOL fieldVisible = CGRectGetMinY(query) >= top - 1.0 && CGRectGetMaxY(query) <= bottom + 1.0;
+        BOOL ready = attached && focused && compact && traitReady && framesReady && fieldVisible;
+        NSString *state = [NSString stringWithFormat:
+            @"t=%.3f eval=%lu gap=%.3f layout=%.3f attached=%d focus=%d compact=%d trait=%d frames=%d visible=%d window=%@ query=%@ viewport=%@ offset=%@ guide=%@ category=%@",
+            CFAbsoluteTimeGetCurrent() - compactStart, (unsigned long)compactEvaluations,
+            maximumEvaluationGap, CFAbsoluteTimeGetCurrent() - evaluationStart,
+            attached, focused, compact, traitReady, framesReady, fieldVisible,
+            NSStringFromCGRect(window.bounds), NSStringFromCGRect(query),
+            NSStringFromCGRect(scrollView.bounds), NSStringFromCGPoint(scrollView.contentOffset),
+            NSStringFromCGRect(search.view.keyboardLayoutGuide.layoutFrame),
+            search.traitCollection.preferredContentSizeCategory];
+        [compactStates addObject:state];
+        NSLog(@"CodeSearchCompactReady %@", state);
+        return ready;
     }];
     XCTNSPredicateExpectation *compactReady = [[XCTNSPredicateExpectation alloc]
         initWithPredicate:compactReadyPredicate object:search];
-    XCTAssertEqual([XCTWaiter waitForExpectations:@[compactReady] timeout:10.0], XCTWaiterResultCompleted,
+    XCTWaiterResult compactResult = [XCTWaiter waitForExpectations:@[compactReady] timeout:20.0];
+    NSString *compactReport = [NSString stringWithFormat:
+        @"result=%ld elapsed=%.3f evaluations=%lu maxGap=%.3f\n%@",
+        (long)compactResult, CFAbsoluteTimeGetCurrent() - compactStart,
+        (unsigned long)compactEvaluations, maximumEvaluationGap,
+        [compactStates componentsJoinedByString:@"\n"]];
+    XCTAttachment *compactDiagnostics = [XCTAttachment attachmentWithString:compactReport];
+    compactDiagnostics.name = @"Host code-search compact readiness diagnostics";
+    compactDiagnostics.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:compactDiagnostics];
+    XCTAttachment *compactBoundaryFrame = [XCTAttachment attachmentWithImage:[self snapshotOfWindow:window]];
+    compactBoundaryFrame.name = @"Host code-search compact readiness settled or failed";
+    compactBoundaryFrame.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:compactBoundaryFrame];
+    XCTAssertEqual(compactResult, XCTWaiterResultCompleted,
                    @"Compact scene must attach, adopt its trait, and show the focused field before capture");
     [window layoutIfNeeded];
     CGRect queryInScroll = [queryField convertRect:queryField.bounds toView:scrollView];
