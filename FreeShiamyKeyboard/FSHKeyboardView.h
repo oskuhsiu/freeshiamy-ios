@@ -49,6 +49,11 @@ static const NSInteger FSHKeyCodeEnter = 10;
 
 - (void)reloadKeys;
 - (void)cancelActivePress;
+- (void)applyLayout:(FSHKeyboardLayout)layout
+      showNumberRow:(BOOL)showNumberRow
+         showsGlobe:(BOOL)showsGlobe
+            labelTop:(BOOL)labelTop
+           leftShift:(BOOL)leftShift;
 
 @end
 

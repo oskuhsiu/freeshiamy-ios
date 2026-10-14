@@ -858,27 +858,26 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
     BOOL labelTop = [FSHSettings keyboardLabelTop];
     BOOL leftShift = [FSHSettings keyboardLeftShift];
     BOOL showNumberRow = [FSHSettings showNumberRow];
+    FSHKeyboardLayout effectiveLayout = FSHKeyboardLayoutStandard;
     if ([layout isEqualToString:@"standard_spacious"]) {
-        self.keyboardView.layout = FSHKeyboardLayoutStandardSpacious;
+        effectiveLayout = FSHKeyboardLayoutStandardSpacious;
     } else if ([layout isEqualToString:@"original"]) {
-        self.keyboardView.layout = FSHKeyboardLayoutOriginal;
+        effectiveLayout = FSHKeyboardLayoutOriginal;
     } else if ([layout isEqualToString:@"original_no_number"]) {
-        self.keyboardView.layout = FSHKeyboardLayoutOriginalNoNumber;
+        effectiveLayout = FSHKeyboardLayoutOriginalNoNumber;
         showNumberRow = NO;
     } else if ([layout isEqualToString:@"standard_label_top"]) {
-        self.keyboardView.layout = FSHKeyboardLayoutStandard;
         labelTop = YES;
         if (![FSHSettings keyboardLabelTop]) {
             [FSHSettings setKeyboardLabelTop:YES];
         }
         [FSHSettings setKeyboardLayout:@"standard"];
-    } else {
-        self.keyboardView.layout = FSHKeyboardLayoutStandard;
     }
-    self.keyboardView.labelTop = labelTop;
-    self.keyboardView.leftShift = leftShift;
-    self.keyboardView.showNumberRow = showNumberRow;
-    [self.keyboardView reloadKeys];
+    [self.keyboardView applyLayout:effectiveLayout
+                    showNumberRow:showNumberRow
+                       showsGlobe:self.keyboardView.showsGlobe
+                          labelTop:labelTop
+                         leftShift:leftShift];
 
     [self updatePreferredContentSize];
     [self refreshCandidatesAndUI];

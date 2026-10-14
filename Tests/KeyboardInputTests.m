@@ -125,6 +125,17 @@ static id FSHFixtureDefaults;
 }
 @end
 
+@interface FSHCountingKeyboardView : FSHKeyboardView
+@property (nonatomic, assign) NSUInteger reloadCount;
+@end
+
+@implementation FSHCountingKeyboardView
+- (void)reloadKeys {
+    [super reloadKeys];
+    self.reloadCount++;
+}
+@end
+
 @interface FSHFakeDocumentProxy : NSObject
 @property (nonatomic, strong) NSMutableString *text;
 @property (nonatomic, assign, getter=isSecureTextEntry) BOOL secureTextEntry;
@@ -341,6 +352,54 @@ static id FSHFixtureDefaults;
         [suiteDefaults removePersistentDomainForName:suite];
         FSHFixtureDefaults = nil;
     }
+}
+
+- (void)testKeyboardConfigurationAppliesOneSnapshotAndCancelsHeldDelete {
+    FSHCountingKeyboardView *keyboard = [[FSHCountingKeyboardView alloc] initWithFrame:CGRectMake(0, 0, 375, 216)];
+    keyboard.mode = FSHKeyboardModeEmoji;
+    keyboard.reloadCount = 0;
+    keyboard.shiftOn = YES;
+    keyboard.capsLockOn = YES;
+    [keyboard applyLayout:FSHKeyboardLayoutStandardSpacious showNumberRow:NO showsGlobe:YES
+                labelTop:YES leftShift:NO];
+    XCTAssertEqual(keyboard.reloadCount, (NSUInteger)1);
+    XCTAssertEqual(keyboard.layout, FSHKeyboardLayoutStandardSpacious);
+    XCTAssertFalse(keyboard.showNumberRow);
+    XCTAssertTrue(keyboard.showsGlobe);
+    XCTAssertTrue(keyboard.labelTop);
+    XCTAssertFalse(keyboard.leftShift);
+    XCTAssertEqual(keyboard.mode, FSHKeyboardModeEmoji);
+    XCTAssertTrue(keyboard.shiftOn);
+    XCTAssertTrue(keyboard.capsLockOn);
+
+    [keyboard applyLayout:FSHKeyboardLayoutStandardSpacious showNumberRow:NO showsGlobe:YES
+                labelTop:YES leftShift:NO];
+    XCTAssertEqual(keyboard.reloadCount, (NSUInteger)1);
+    [keyboard applyLayout:FSHKeyboardLayoutStandardSpacious showNumberRow:NO showsGlobe:YES
+                labelTop:YES leftShift:YES];
+    XCTAssertEqual(keyboard.reloadCount, (NSUInteger)1);
+    XCTAssertTrue(keyboard.leftShift);
+
+    [keyboard applyLayout:FSHKeyboardLayoutStandardLabelTop showNumberRow:NO showsGlobe:YES
+                labelTop:NO leftShift:YES];
+    XCTAssertEqual(keyboard.reloadCount, (NSUInteger)2);
+    XCTAssertEqual(keyboard.layout, FSHKeyboardLayoutStandard);
+    XCTAssertTrue(keyboard.labelTop);
+    [keyboard applyLayout:FSHKeyboardLayoutStandardLabelTop showNumberRow:NO showsGlobe:YES
+                labelTop:NO leftShift:YES];
+    XCTAssertEqual(keyboard.reloadCount, (NSUInteger)2);
+    XCTAssertEqual(keyboard.mode, FSHKeyboardModeEmoji);
+
+    FSHKeyButton *delete = [keyboard valueForKey:@"deleteButton"];
+    [delete sendActionsForControlEvents:UIControlEventTouchDown];
+    XCTAssertTrue([[keyboard valueForKey:@"deleteIsPressed"] boolValue]);
+    [keyboard applyLayout:FSHKeyboardLayoutOriginal showNumberRow:YES showsGlobe:YES
+                labelTop:NO leftShift:NO];
+    XCTAssertEqual(keyboard.reloadCount, (NSUInteger)3);
+    XCTAssertFalse([[keyboard valueForKey:@"deleteIsPressed"] boolValue]);
+    XCTAssertEqual(keyboard.mode, FSHKeyboardModeEmoji);
+    XCTAssertTrue(keyboard.shiftOn);
+    XCTAssertTrue(keyboard.capsLockOn);
 }
 
 - (void)testTapDeletesRawBufferExactlyOnce {

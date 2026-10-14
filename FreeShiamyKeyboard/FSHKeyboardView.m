@@ -109,6 +109,33 @@
     [self setNeedsLayout];
 }
 
+- (void)applyLayout:(FSHKeyboardLayout)layout
+      showNumberRow:(BOOL)showNumberRow
+         showsGlobe:(BOOL)showsGlobe
+            labelTop:(BOOL)labelTop
+           leftShift:(BOOL)leftShift {
+    if (layout == FSHKeyboardLayoutStandardLabelTop) {
+        layout = FSHKeyboardLayoutStandard;
+        labelTop = YES;
+    }
+    BOOL rebuild = (_layout != layout || _showNumberRow != showNumberRow ||
+                    _showsGlobe != showsGlobe || _labelTop != labelTop);
+    BOOL relayout = (_leftShift != leftShift);
+    if (!rebuild && !relayout) {
+        return;
+    }
+    _layout = layout;
+    _showNumberRow = showNumberRow;
+    _showsGlobe = showsGlobe;
+    _labelTop = labelTop;
+    _leftShift = leftShift;
+    if (rebuild) {
+        [self reloadKeys];
+    } else {
+        [self setNeedsLayout];
+    }
+}
+
 - (void)setShiftOn:(BOOL)shiftOn {
     _shiftOn = shiftOn;
     [self updateShiftAppearance];
