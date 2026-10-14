@@ -31,8 +31,12 @@ touch Config/Local.xcconfig
 xcodebuild -list -project freeshiamy-ios.xcodeproj > "$ARTIFACTS/project-list.log" 2>&1
 xcodebuild -help > "$ARTIFACTS/xcodebuild-help.log" 2>&1
 if ! grep -q -- '-testLanguage' "$ARTIFACTS/xcodebuild-help.log" || \
-   ! grep -q -- '-testRegion' "$ARTIFACTS/xcodebuild-help.log"; then
-    echo "Xcode 26.2 does not list the test language/region options" | tee "$ARTIFACTS/test-locale-preflight.log"
+   ! grep -q -- '-testRegion' "$ARTIFACTS/xcodebuild-help.log" || \
+   ! grep -q -- '-only-testing:TEST-IDENTIFIER' "$ARTIFACTS/xcodebuild-help.log" || \
+   ! grep -q -- '-test-timeouts-enabled' "$ARTIFACTS/xcodebuild-help.log" || \
+   ! grep -q -- '-maximum-test-execution-time-allowance' "$ARTIFACTS/xcodebuild-help.log" || \
+   ! grep -q -- '-collect-test-diagnostics on-failure' "$ARTIFACTS/xcodebuild-help.log"; then
+    echo "Xcode 26.2 does not list the required focused-test, timeout, or locale options" | tee "$ARTIFACTS/test-options-preflight.log"
     exit 1
 fi
 
@@ -66,8 +70,10 @@ xcrun simctl spawn "$DEVICE_ID" defaults read -g AppleLanguages \
     > "$ARTIFACTS/simulator-languages.log" 2>&1 || true
 
 run_stage() {
-    local label="$1" scheme="$2" result=0
+    local label="$1" scheme="$2" allowance="$3" maximum="$4" result=0
+    shift 4
     echo "[stage] $label on $DEVICE_ID"
+    set +e
     xcodebuild test \
         -project freeshiamy-ios.xcodeproj \
         -scheme "$scheme" \
@@ -76,11 +82,21 @@ run_stage() {
         -testLanguage en \
         -testRegion US \
         -parallel-testing-enabled NO \
+        -test-timeouts-enabled YES \
+        -default-test-execution-time-allowance "$allowance" \
+        -maximum-test-execution-time-allowance "$maximum" \
+        -collect-test-diagnostics on-failure \
         -derivedDataPath "$TEMP_ROOT/freeshiamy-derived-data" \
         -resultBundlePath "$ARTIFACTS/$label.xcresult" \
+        "$@" \
         CODE_SIGNING_ALLOWED=NO \
-        > "$ARTIFACTS/$label-xcodebuild.log" 2>&1 || result=$?
-    echo "[stage] $label xcodebuild exit status $result"
+        2>&1 | tee "$ARTIFACTS/$label-xcodebuild.log"
+    local -a pipeline_status=("${PIPESTATUS[@]}")
+    local build_result=${pipeline_status[0]} log_result=${pipeline_status[1]}
+    result=$build_result
+    if [[ "$result" == 0 && "$log_result" != 0 ]]; then result=$log_result; fi
+    set -e
+    echo "[stage] $label xcodebuild status $build_result; tee status $log_result; combined stage status $result"
     if [[ -d "$ARTIFACTS/$label.xcresult" ]]; then
         mkdir -p "$ARTIFACTS/$label-attachments"
         if ! xcrun xcresulttool export attachments \
@@ -96,8 +112,21 @@ run_stage() {
     return "$result"
 }
 
-hosted_result=0
-run_stage hosted freeshiamy-ios || hosted_result=$?
+focused_result=0
+run_stage hosted-focused freeshiamy-ios 120 180 \
+    '-only-testing:KeyboardInputTests/KeyboardInputTests/testAXCompactAlternateTypographySettlesAcrossRepeatedLayouts' \
+    '-only-testing:KeyboardInputTests/KeyboardInputTests/testAttachedHostHeightAndDynamicTypeAdaptWithoutRebuildingComposition' \
+    '-only-testing:KeyboardInputTests/KeyboardInputTests/testCandidateAccessibilityDescribesCodeExactnessAndRealShortcutsAcrossContexts' \
+    '-only-testing:KeyboardInputTests/KeyboardInputTests/testHostActionTitlesWrapInAttachedAccessibilityViewport' \
+    '-only-testing:KeyboardInputTests/KeyboardInputTests/testHostPanelScrollsFocusedFieldsAboveSceneBackedKeyboard' \
+    || focused_result=$?
+hosted_result=skipped
+if [[ "$focused_result" == 0 ]]; then
+    hosted_result=0
+    run_stage hosted freeshiamy-ios 120 180 || hosted_result=$?
+else
+    echo '[stage] Full hosted suite skipped because focused diagnostics failed' | tee "$ARTIFACTS/hosted-skipped.log"
+fi
 
 # RequestsOpenAccess describes the extension's capability request, not whether
 # the user granted Full Access. The UI test must independently observe OFF.
@@ -115,7 +144,7 @@ else
 fi
 
 ui_result=0
-run_stage installed-extension InstalledKeyboardSmoke || ui_result=$?
+run_stage installed-extension InstalledKeyboardSmoke 180 300 || ui_result=$?
 # Collect extension process diagnostics even when the first UI boundary fails.
 xcrun simctl spawn "$DEVICE_ID" log show --last 30m --style compact --info --debug \
     --predicate 'process == "FreeShiamyKeyboard" OR eventMessage CONTAINS "FreeShiamyKeyboard lifecycle"' \
@@ -129,5 +158,6 @@ fi
 # Missing unified-log evidence blocks a completed installed-extension claim for
 # this first run. Classify that as inconclusive integration evidence, not a
 # demonstrated keyboard product failure; retained UI evidence diagnoses it.
-printf 'hosted=%s\nplist=%s\ninstalled-extension=%s\nprocess-log=%s\n' "$hosted_result" "$plist_result" "$ui_result" "$process_observation" | tee "$ARTIFACTS/stage-status.txt"
-if [[ "$hosted_result" != 0 || "$plist_result" != 0 || "$ui_result" != 0 || "$process_result" != 0 ]]; then exit 1; fi
+printf 'hosted-focused=%s\nhosted-full=%s\nplist=%s\ninstalled-extension=%s\nprocess-log=%s\n' \
+    "$focused_result" "$hosted_result" "$plist_result" "$ui_result" "$process_observation" | tee "$ARTIFACTS/stage-status.txt"
+if [[ "$focused_result" != 0 || "$hosted_result" != 0 || "$plist_result" != 0 || "$ui_result" != 0 || "$process_result" != 0 ]]; then exit 1; fi

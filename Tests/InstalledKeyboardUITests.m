@@ -52,7 +52,7 @@
     // Walk the public UI rather than changing Settings preferences directly.
     for (NSUInteger scroll = 0; scroll <= 8; scroll++) {
         NSPredicate *ready = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
-            return query.count == 1 && first.isHittable;
+            return query.count == 1 && [self isOnScreen:first application:settings] && first.isHittable;
         }];
         XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
                                                  initWithPredicate:ready object:first];
@@ -65,6 +65,12 @@
     [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:settings];
     XCTFail(@"%@: expected one visible, hittable Settings control; found %lu", stage, (unsigned long)query.count);
     return nil;
+}
+
+- (BOOL)isOnScreen:(XCUIElement *)element application:(XCUIApplication *)application {
+    if (!element || !element.exists) return NO;
+    CGRect frame = element.frame;
+    return !CGRectIsEmpty(frame) && CGRectIntersectsRect(frame, application.frame);
 }
 
 - (XCUIElement *)settingsRowWithLabels:(NSArray<NSString *> *)labels
@@ -97,7 +103,8 @@
             // A child button may have CGRectZero even when its cell is
             // hittable. Check structural containment instead of geometry.
             if (button && cell && [cell.buttons matchingPredicate:label].count != 1) return NO;
-            target = button.isHittable ? button : (cell.isHittable ? cell : nil);
+            target = ([self isOnScreen:button application:settings] && button.isHittable)
+                ? button : (([self isOnScreen:cell application:settings] && cell.isHittable) ? cell : nil);
             return target != nil;
         }];
         XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
@@ -205,13 +212,27 @@
     if (!add) return;
     [add tap];
     [self capture:@"Opened Add New Keyboard" application:settings];
-    NSArray<NSString *> *extensionNames = @[@"FreeShiamy", @"freeshiamy-ios"];
-    XCUIElement *registration = [self settingsRowWithLabels:extensionNames identifier:nil
-                                                     stage:@"Installed FreeShiamy listing"
-                                               application:settings];
+    // The retained Add New Keyboard hierarchy exposes this exact visible
+    // StaticText within a row whose cell reports non-hittable. Validate the
+    // semantic child without scrolling the observed row away.
+    XCUIElementQuery *registrationQuery = [settings.staticTexts matchingIdentifier:@"osku.me.freeshiamyios"];
+    XCUIElement *registration = registrationQuery.firstMatch;
+    NSPredicate *registrationReady = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return registrationQuery.count == 1 && [self isOnScreen:registration application:settings] && registration.isHittable;
+    }];
+    XCTNSPredicateExpectation *registrationExpectation = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:registrationReady object:registration];
+    if ([XCTWaiter waitForExpectations:@[registrationExpectation] timeout:5.0] != XCTWaiterResultCompleted) {
+        [self capture:@"Installed FreeShiamy listing — first boundary failure" application:settings];
+        XCTFail(@"Expected one visible, hittable installed FreeShiamy listing; found %lu",
+                (unsigned long)registrationQuery.count);
+        return;
+    }
+    [self capture:@"Installed FreeShiamy listing" application:settings];
     if (!registration) return;
     [registration tap];
     [self capture:@"FreeShiamy registered through Settings" application:settings];
+    NSArray<NSString *> *extensionNames = @[@"FreeShiamy", @"freeshiamy-ios"];
     XCUIElement *configuration = [self settingsRowWithLabels:extensionNames identifier:nil
                                                       stage:@"Enabled FreeShiamy settings row"
                                                 application:settings];

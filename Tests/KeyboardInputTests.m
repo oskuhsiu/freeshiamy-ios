@@ -379,7 +379,7 @@ static NSString *FSHFixtureSuiteName;
     return pixels;
 }
 
-- (CGFloat)titleContrastForButton:(FSHKeyButton *)button inWindow:(UIWindow *)window
+- (CGFloat)titleContrastForButton:(UIButton *)button inWindow:(UIWindow *)window
                             image:(UIImage *)image {
     XCTAssertEqual(image.imageOrientation, UIImageOrientationUp);
     if (image.imageOrientation != UIImageOrientationUp) {
@@ -2138,6 +2138,69 @@ static NSString *FSHFixtureSuiteName;
     XCTAssertTrue(bar.isExpanded);
 }
 
+- (void)testAXCompactAlternateTypographySettlesAcrossRepeatedLayouts {
+    UIWindowScene *scene = nil;
+    for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
+        if ([candidate isKindOfClass:UIWindowScene.class] &&
+            candidate.activationState == UISceneActivationStateForegroundActive) {
+            scene = (UIWindowScene *)candidate;
+            break;
+        }
+    }
+    XCTAssertNotNil(scene);
+    if (!scene) { return; }
+    UIWindow *oldKeyWindow = nil;
+    for (UIWindow *candidate in scene.windows) {
+        if (candidate.isKeyWindow) { oldKeyWindow = candidate; break; }
+    }
+    UIViewController *host = [[UIViewController alloc] init];
+    UIViewController *holder = [[UIViewController alloc] init];
+    [host addChildViewController:holder];
+    holder.view.frame = CGRectMake(0, 0, 320, 220);
+    [host.view addSubview:holder.view];
+    [holder didMoveToParentViewController:host];
+    FSHKeyboardView *keyboard = [[FSHKeyboardView alloc] initWithFrame:CGRectMake(0, 0, 320, 100)];
+    keyboard.mode = FSHKeyboardModeLetters;
+    keyboard.showNumberRow = YES;
+    [holder.view addSubview:keyboard];
+    UIWindow *window = [[UIWindow alloc] initWithWindowScene:scene];
+    window.frame = scene.coordinateSpace.bounds;
+    window.rootViewController = host;
+    [window makeKeyAndVisible];
+    [host setOverrideTraitCollection:[UITraitCollection traitCollectionWithPreferredContentSizeCategory:
+        UIContentSizeCategoryAccessibilityExtraExtraExtraLarge] forChildViewController:holder];
+    XCTAssertTrue([self waitForView:keyboard toAttachToWindow:window]);
+    FSHKeyButton *mode = [keyboard valueForKey:@"modeButton"];
+    UILabel *hint = [mode valueForKey:@"alternateHintLabel"];
+    XCTAssertNotNil(mode);
+    XCTAssertNotNil(hint);
+    XCTAssertEqualObjects(keyboard.traitCollection.preferredContentSizeCategory,
+                          UIContentSizeCategoryAccessibilityExtraExtraExtraLarge);
+    for (NSNumber *height in @[@100.0, @220.0, @100.0]) {
+        keyboard.frame = CGRectMake(0, 0, 320, height.doubleValue);
+        NSLog(@"AdaptiveTypography checkpoint before layout height=%@", height);
+        [keyboard setNeedsLayout];
+        [keyboard layoutIfNeeded];
+        NSLog(@"AdaptiveTypography checkpoint after layout height=%@", height);
+        BOOL compact = height.doubleValue == 100.0;
+        XCTAssertEqual(hint.hidden, compact);
+        UIFont *settledFont = mode.titleLabel.font;
+        UIEdgeInsets settledInsets = mode.contentEdgeInsets;
+        UIControlContentVerticalAlignment settledAlignment = mode.contentVerticalAlignment;
+        for (NSUInteger pass = 0; pass < 12; pass++) {
+            [keyboard setNeedsLayout];
+            [keyboard layoutIfNeeded];
+            XCTAssertEqual(mode.titleLabel.font, settledFont,
+                           @"Title font must not be reassigned on repeated layout pass %lu", (unsigned long)pass);
+            XCTAssertTrue(UIEdgeInsetsEqualToEdgeInsets(mode.contentEdgeInsets, settledInsets));
+            XCTAssertEqual(mode.contentVerticalAlignment, settledAlignment);
+            XCTAssertEqual(hint.hidden, compact);
+        }
+    }
+    [window setHidden:YES];
+    [oldKeyWindow makeKeyAndVisible];
+}
+
 - (void)testAttachedHostHeightAndDynamicTypeAdaptWithoutRebuildingComposition {
     UIWindowScene *scene = nil;
     for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
@@ -2241,14 +2304,52 @@ static NSString *FSHFixtureSuiteName;
                 XCTAssertGreaterThan(end, 60.0);
                 XCTAssertLessThanOrEqual(CGRectGetMaxY(last.frame) - moreScroll.contentOffset.y,
                                          CGRectGetHeight(moreScroll.bounds) + 0.5);
-                XCTAttachment *shot = [XCTAttachment attachmentWithImage:[self snapshotOfWindow:window]];
+                NSPredicate *presentedCandidate = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+                    [host.view layoutIfNeeded];
+                    [controller.view layoutIfNeeded];
+                    [bar layoutIfNeeded];
+                    if (last.window != window || CGRectIsEmpty(last.titleLabel.bounds)) return NO;
+                    BOOL insideViewport = NO;
+                    for (UIView *ancestor = last; ancestor; ancestor = ancestor.superview) {
+                        if (ancestor.hidden || ancestor.alpha <= 0.01) return NO;
+                        if (ancestor == moreScroll) insideViewport = YES;
+                    }
+                    if (!insideViewport) return NO;
+                    CGRect viewport = [moreScroll convertRect:moreScroll.bounds toView:window];
+                    CGRect title = [last.titleLabel convertRect:last.titleLabel.bounds toView:window];
+                    if (!CGRectContainsRect(CGRectInset(viewport, -1.0, -1.0), title)) return NO;
+                    UIImage *frame = [self snapshotOfWindow:window];
+                    return [self titleContrastForButton:last inWindow:window image:frame] >= 0.3;
+                }];
+                XCTNSPredicateExpectation *candidateReady = [[XCTNSPredicateExpectation alloc]
+                    initWithPredicate:presentedCandidate object:last];
+                XCTWaiterResult candidateResult = [XCTWaiter waitForExpectations:@[candidateReady] timeout:5.0];
+                UIImage *finalFrame = [self snapshotOfWindow:window];
+                CGFloat finalContrast = [self titleContrastForButton:last inWindow:window image:finalFrame];
+                XCTAttachment *shot = [XCTAttachment attachmentWithImage:finalFrame];
                 shot.name = @"Accessibility XXXL compact candidate selection";
                 shot.lifetime = XCTAttachmentLifetimeKeepAlways;
                 [self addAttachment:shot];
+                CGRect presented = [last.titleLabel convertRect:last.titleLabel.bounds toView:window];
+                CGRect viewport = [moreScroll convertRect:moreScroll.bounds toView:window];
+                XCTAttachment *geometry = [XCTAttachment attachmentWithString:
+                    [NSString stringWithFormat:@"title=%@ viewport=%@ offset=%@ hidden=%d alpha=%g attached=%d contrast=%g",
+                     NSStringFromCGRect(presented), NSStringFromCGRect(viewport),
+                     NSStringFromCGPoint(moreScroll.contentOffset), last.hidden, last.alpha, last.window == window,
+                     finalContrast]];
+                geometry.name = @"Compact More presented-candidate geometry";
+                geometry.lifetime = XCTAttachmentLifetimeKeepAlways;
+                [self addAttachment:geometry];
+                XCTAssertEqual(candidateResult, XCTWaiterResultCompleted,
+                               @"Offscreen expanded candidate must become visibly presented after scrolling");
+                XCTAssertGreaterThanOrEqual(finalContrast, 0.3,
+                                           @"Offscreen candidate title must remain visible in the attached frame");
             }
             bar.expanded = NO;
+            NSLog(@"AdaptiveKeyboard checkpoint before collapsed layout width=%@ height=%@", rootWidth, rootHeight);
             [host.view layoutIfNeeded];
             [controller.view layoutIfNeeded];
+            NSLog(@"AdaptiveKeyboard checkpoint after collapsed layout width=%@ height=%@", rootWidth, rootHeight);
             XCTAssertFalse(keyboard.hidden);
             XCTAssertTrue([inlineFirst.accessibilityHint containsString:@"數字 0"]);
             XCTAssertTrue([inlineFirst.accessibilityHint containsString:@"空白鍵"]);
@@ -2619,10 +2720,12 @@ static NSString *FSHFixtureSuiteName;
     XCTAssertEqualObjects(more.accessibilityLabel, @"更多候選字");
     XCTAssertEqualObjects(more.accessibilityValue, @"已收合");
 
-    [bar setExpanded:YES];
+    [more sendActionsForControlEvents:UIControlEventTouchUpInside];
     [host layoutIfNeeded];
     XCTAssertEqualObjects(more.accessibilityValue, @"已展開");
     NSArray<UIButton *> *morePool = [bar valueForKey:@"moreButtonPool"];
+    XCTAssertEqual(morePool.count, (NSUInteger)12);
+    if (morePool.count < 12) { return; }
     UIButton *prefix = morePool[10];
     XCTAssertEqualObjects(prefix.accessibilityValue, @"字碼 ci，前綴候選");
     XCTAssertFalse([prefix.accessibilityHint containsString:@"數字"]);
@@ -3895,10 +3998,43 @@ static NSString *FSHFixtureSuiteName;
 
     [multi becomeFirstResponder];
     window.frame = CGRectMake(0, 0, 320, 390);
-    [window layoutIfNeeded];
+    NSPredicate *compactCaretVisible = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        [window layoutIfNeeded];
+        CGRect guide = panel.view.keyboardLayoutGuide.layoutFrame;
+        if (fabs(CGRectGetWidth(window.bounds) - 320.0) > 0.5 ||
+            fabs(CGRectGetHeight(window.bounds) - 390.0) > 0.5 ||
+            fabs(CGRectGetWidth(panel.view.bounds) - 320.0) > 0.5 ||
+            CGRectGetHeight(panel.view.bounds) > 391.0 ||
+            CGRectGetHeight(guide) <= panel.view.safeAreaInsets.bottom + 100.0 ||
+            CGRectGetMinY(guide) >= CGRectGetHeight(panel.view.bounds) - 100.0) return NO;
+        UITextPosition *currentCaret = multi.selectedTextRange.end;
+        if (!multi.isFirstResponder || !currentCaret || CGRectIsEmpty(scroll.bounds)) return NO;
+        CGRect currentRect = [multi convertRect:[multi caretRectForPosition:currentCaret] toView:scroll];
+        return CGRectGetMinY(currentRect) >= scroll.contentOffset.y - 1.0 &&
+               CGRectGetMaxY(currentRect) <= scroll.contentOffset.y + CGRectGetHeight(scroll.bounds) + 1.0 &&
+               CGRectGetMaxY(scroll.frame) <= CGRectGetMinY(guide) + 1.0;
+    }];
+    XCTNSPredicateExpectation *compactReady = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:compactCaretVisible object:multi];
+    XCTWaiterResult compactResult = [XCTWaiter waitForExpectations:@[compactReady] timeout:8.0];
+    XCTAttachment *compactShot = [XCTAttachment attachmentWithImage:[self snapshotOfWindow:window]];
+    compactShot.name = @"Compact host panel after focused multiline layout";
+    compactShot.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:compactShot];
     caret = multi.selectedTextRange.end;
     XCTAssertNotNil(caret);
     caretRect = caret ? [multi convertRect:[multi caretRectForPosition:caret] toView:scroll] : CGRectZero;
+    XCTAttachment *compactGeometry = [XCTAttachment attachmentWithString:
+        [NSString stringWithFormat:@"caret=%@ viewport=%@ offset=%@ keyboardGuide=%@ window=%@ panel=%@ responder=%d",
+         NSStringFromCGRect(caretRect), NSStringFromCGRect(scroll.bounds),
+         NSStringFromCGPoint(scroll.contentOffset),
+         NSStringFromCGRect(panel.view.keyboardLayoutGuide.layoutFrame), NSStringFromCGRect(window.bounds),
+         NSStringFromCGRect(panel.view.bounds), multi.isFirstResponder]];
+    compactGeometry.name = @"Compact host caret and keyboard-guide geometry";
+    compactGeometry.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:compactGeometry];
+    XCTAssertEqual(compactResult, XCTWaiterResultCompleted,
+                   @"Focused caret must settle inside the actual compact viewport");
     XCTAssertGreaterThanOrEqual(CGRectGetMinY(caretRect), scroll.contentOffset.y - 1.0);
     XCTAssertLessThanOrEqual(CGRectGetMaxY(caretRect), scroll.contentOffset.y + scroll.bounds.size.height + 1.0);
     XCTAssertLessThanOrEqual(CGRectGetMaxY(scroll.frame),

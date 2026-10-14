@@ -17,6 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build and run XCTest
+        timeout-minutes: 25
         run: bash ci/test-ios.sh
       - name: Benchmark native Foundation lookup
         if: always()

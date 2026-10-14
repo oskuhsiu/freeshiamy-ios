@@ -166,6 +166,7 @@
         typeof(self) strongSelf = weakSelf;
         if (strongSelf.isViewLoaded &&
             [strongSelf respondsToSelector:@selector(scrollFocusedInputIntoView)]) {
+            [strongSelf refreshActionButtonHeights];
             [strongSelf.view layoutIfNeeded];
             [strongSelf scrollFocusedInputIntoView];
         }
@@ -173,10 +174,21 @@
 }
 
 - (void)refreshActionButtonHeights {
+    UIFont *bodyFont = [UIFont preferredFontForTextStyle:UIFontTextStyleBody
+                              compatibleWithTraitCollection:self.traitCollection];
     for (NSUInteger index = 0; index < self.actionButtons.count; index++) {
         UIButton *button = self.actionButtons[index];
+        BOOL changed = NO;
+        if (![button.titleLabel.font isEqual:bodyFont]) {
+            button.titleLabel.font = bodyFont;
+            changed = YES;
+        }
         CGFloat textWidth = CGRectGetWidth(button.bounds) - button.contentEdgeInsets.left - button.contentEdgeInsets.right;
         if (textWidth <= 0.0) { continue; }
+        if (fabs(button.titleLabel.preferredMaxLayoutWidth - textWidth) > 0.5) {
+            button.titleLabel.preferredMaxLayoutWidth = textWidth;
+            changed = YES;
+        }
         NSString *title = [button titleForState:UIControlStateNormal] ?: @"";
         CGRect textRect = [title boundingRectWithSize:CGSizeMake(textWidth, CGFLOAT_MAX)
                                              options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
@@ -186,9 +198,9 @@
         NSLayoutConstraint *height = self.actionButtonHeights[index];
         if (fabs(height.constant - minimum) > 0.5) {
             height.constant = minimum;
-            button.titleLabel.preferredMaxLayoutWidth = textWidth;
-            [button invalidateIntrinsicContentSize];
+            changed = YES;
         }
+        if (changed) { [button invalidateIntrinsicContentSize]; }
     }
 }
 

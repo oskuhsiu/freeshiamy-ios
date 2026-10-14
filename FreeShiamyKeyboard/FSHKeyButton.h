@@ -13,6 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) UIEdgeInsets hitAreaOutsets;
 
 - (void)updateAlternateHintTypography;
+- (void)applyPreferredTitleFont:(UIFont *)font;
 
 @end
 

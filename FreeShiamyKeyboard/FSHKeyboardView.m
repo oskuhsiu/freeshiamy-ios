@@ -579,7 +579,8 @@
                 weight += 0.5;
             }
             CGFloat width = (totalWeight > 0) ? adjustedUnitWidth * weight : 0;
-            button.frame = CGRectMake(x, y, width, rowHeight);
+            CGRect frame = CGRectMake(x, y, width, rowHeight);
+            if (!CGRectEqualToRect(button.frame, frame)) { button.frame = frame; }
             CGFloat left = (keyIndex == 0) ? MAX(0.0, x) : rowHGap * 0.5;
             CGFloat right = (keyIndex + 1 == row.count)
                 ? MAX(0.0, totalWidth - CGRectGetMaxX(button.frame)) : rowHGap * 0.5;
@@ -612,17 +613,18 @@
     UIFont *base = [UIFont systemFontOfSize:baseSize weight:isReturn ? UIFontWeightSemibold : UIFontWeightRegular];
     UIFont *scaled = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleBody]
         scaledFontForFont:base maximumPointSize:cap compatibleWithTraitCollection:self.traitCollection];
-    button.titleLabel.font = scaled;
-    button.titleLabel.adjustsFontSizeToFitWidth = YES;
-    button.titleLabel.minimumScaleFactor = 0.75;
+    if (!hasAlternate && ![button.titleLabel.font isEqual:scaled]) { button.titleLabel.font = scaled; }
+    if (!button.titleLabel.adjustsFontSizeToFitWidth) { button.titleLabel.adjustsFontSizeToFitWidth = YES; }
+    if (fabs(button.titleLabel.minimumScaleFactor - 0.75) > 0.001) { button.titleLabel.minimumScaleFactor = 0.75; }
     if (hasAlternate) {
-        button.contentVerticalAlignment = UIControlContentVerticalAlignmentBottom;
-        button.contentEdgeInsets = UIEdgeInsetsMake(0.0, 1.0, MIN(2.0, rowHeight * 0.05), 1.0);
+        [button applyPreferredTitleFont:scaled];
     } else if (self.labelTop && !button.isSpecial) {
-        button.contentVerticalAlignment = UIControlContentVerticalAlignmentTop;
-        button.contentEdgeInsets = UIEdgeInsetsMake(MIN(6.0, rowHeight * 0.1), 0.0, 0.0, 0.0);
+        if (button.contentVerticalAlignment != UIControlContentVerticalAlignmentTop) {
+            button.contentVerticalAlignment = UIControlContentVerticalAlignmentTop;
+        }
+        UIEdgeInsets insets = UIEdgeInsetsMake(MIN(6.0, rowHeight * 0.1), 0.0, 0.0, 0.0);
+        if (!UIEdgeInsetsEqualToEdgeInsets(button.contentEdgeInsets, insets)) { button.contentEdgeInsets = insets; }
     }
-    [button updateAlternateHintTypography];
 }
 
 - (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
