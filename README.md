@@ -26,7 +26,7 @@ This branch starts from `master` at `2d449c3ce19b5faaa0704d4c67a69a4e75f0736f`. 
 | F20 | Under test | Spell data comment appears in candidate value | `j03 腕 # non official` parses to `腕`; literal # value retained |
 | F21 | Under test | Engine reports ready after parse failures | Atomic missing/unreadable/empty-dictionary failure and visible error |
 | F22 | Under test | Background load mutates live engine | Publish completed engine on main, reject stale result |
-| F23 | Open | Homophone index keeps first pronunciation only | All known readings for 行/樂 with stable deduped order |
+| F23 | Under test | Homophone index keeps first pronunciation only | All known readings for 行/樂 with stable deduped order |
 | F24 | Open | Duplicate comma/period entries in main dictionary | Exact duplicates removed, alternate codes retained |
 | F25 | Open | Host app lacks character-to-all-codes search | Offline lookup: 行→MV/MIRI, 中→CI/CJ/CJV |
 | F26 | Open | Settings accept arbitrary numbers/strings | Range/enum sanitation and legacy fixture tests |

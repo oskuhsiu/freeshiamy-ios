@@ -7,7 +7,7 @@
 @property (nonatomic, assign, readwrite) BOOL ready;
 @property (nonatomic, strong) NSDictionary<NSString *, NSArray<FSHCandidate *> *> *firstCharIndex;
 @property (nonatomic, strong) NSDictionary<NSString *, NSString *> *shortestCodeByValue;
-@property (nonatomic, strong) NSDictionary<NSString *, NSString *> *spellByValue;
+@property (nonatomic, strong) NSDictionary<NSString *, NSArray<NSString *> *> *spellsByValue;
 @property (nonatomic, strong) NSDictionary<NSString *, NSArray<NSString *> *> *valuesBySpell;
 
 @end
@@ -18,7 +18,7 @@
     self.ready = NO;
     self.firstCharIndex = nil;
     self.shortestCodeByValue = nil;
-    self.spellByValue = nil;
+    self.spellsByValue = nil;
     self.valuesBySpell = nil;
 
     NSString *cinPath = [self pathForResource:@"freeshiamy" type:@"cin" inBundle:bundle];
@@ -102,15 +102,19 @@
     if (!self.ready || baseValue.length == 0) {
         return @[];
     }
-    NSString *spell = self.spellByValue[baseValue];
-    NSArray<NSString *> *values = spell ? self.valuesBySpell[spell] : nil;
-    if (values.count == 0) {
-        NSString *fallbackSpell = spell ?: @"";
-        return @[[[FSHCandidate alloc] initWithCode:fallbackSpell value:baseValue]];
+    NSArray<NSString *> *spells = self.spellsByValue[baseValue];
+    NSMutableArray<FSHCandidate *> *results = [NSMutableArray array];
+    NSMutableSet<NSString *> *seenValues = [NSMutableSet set];
+    for (NSString *spell in spells) {
+        for (NSString *value in self.valuesBySpell[spell]) {
+            if (![seenValues containsObject:value]) {
+                [seenValues addObject:value];
+                [results addObject:[[FSHCandidate alloc] initWithCode:spell value:value]];
+            }
+        }
     }
-    NSMutableArray<FSHCandidate *> *results = [NSMutableArray arrayWithCapacity:values.count];
-    for (NSString *value in values) {
-        [results addObject:[[FSHCandidate alloc] initWithCode:spell value:value]];
+    if (results.count == 0) {
+        return @[[[FSHCandidate alloc] initWithCode:spells.firstObject ?: @"" value:baseValue]];
     }
     return results;
 }
@@ -120,7 +124,11 @@
 }
 
 - (NSString *)spellForValue:(NSString *)value {
-    return self.spellByValue[value];
+    return self.spellsByValue[value].firstObject;
+}
+
+- (NSArray<NSString *> *)spellsForValue:(NSString *)value {
+    return self.spellsByValue[value] ?: @[];
 }
 
 - (NSString *)normalizedCode:(NSString *)code {
@@ -157,8 +165,8 @@
         [bucket addObject:[[FSHCandidate alloc] initWithCode:normalizedCode value:candidate.value]];
     }
 
-    NSMutableDictionary<NSString *, NSString *> *spellByValue = [NSMutableDictionary dictionary];
-    NSMutableDictionary<NSString *, NSMutableArray<NSString *> *> *valuesBySpell = [NSMutableDictionary dictionary];
+    NSMutableDictionary<NSString *, NSMutableOrderedSet<NSString *> *> *spellsByValue = [NSMutableDictionary dictionary];
+    NSMutableDictionary<NSString *, NSMutableOrderedSet<NSString *> *> *valuesBySpell = [NSMutableDictionary dictionary];
 
     for (FSHCandidate *candidate in spellEntries) {
         NSString *spell = candidate.code;
@@ -166,12 +174,15 @@
         if (spell.length == 0 || value.length == 0) {
             continue;
         }
-        if (!spellByValue[value]) {
-            spellByValue[value] = spell;
+        NSMutableOrderedSet<NSString *> *spells = spellsByValue[value];
+        if (!spells) {
+            spells = [NSMutableOrderedSet orderedSet];
+            spellsByValue[value] = spells;
         }
-        NSMutableArray<NSString *> *values = valuesBySpell[spell];
+        [spells addObject:spell];
+        NSMutableOrderedSet<NSString *> *values = valuesBySpell[spell];
         if (!values) {
-            values = [NSMutableArray array];
+            values = [NSMutableOrderedSet orderedSet];
             valuesBySpell[spell] = values;
         }
         [values addObject:value];
@@ -182,14 +193,18 @@
         finalIndex[key] = [obj copy];
     }];
 
+    NSMutableDictionary<NSString *, NSArray<NSString *> *> *finalSpellsByValue = [NSMutableDictionary dictionaryWithCapacity:spellsByValue.count];
+    [spellsByValue enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, NSMutableOrderedSet<NSString *> * _Nonnull obj, BOOL * _Nonnull stop) {
+        finalSpellsByValue[key] = obj.array;
+    }];
     NSMutableDictionary<NSString *, NSArray<NSString *> *> *finalSpellIndex = [NSMutableDictionary dictionaryWithCapacity:valuesBySpell.count];
-    [valuesBySpell enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, NSMutableArray<NSString *> * _Nonnull obj, BOOL * _Nonnull stop) {
-        finalSpellIndex[key] = [obj copy];
+    [valuesBySpell enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, NSMutableOrderedSet<NSString *> * _Nonnull obj, BOOL * _Nonnull stop) {
+        finalSpellIndex[key] = obj.array;
     }];
 
     self.firstCharIndex = finalIndex;
     self.shortestCodeByValue = [shortestCodeByValue copy];
-    self.spellByValue = [spellByValue copy];
+    self.spellsByValue = [finalSpellsByValue copy];
     self.valuesBySpell = finalSpellIndex;
 }
 

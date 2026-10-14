@@ -518,6 +518,41 @@
     XCTAssertTrue(foundWrist);
 }
 
+- (void)testAllPronunciationsContributeStableDeduplicatedHomophones {
+    FSHShiamyEngine *engine = [[FSHShiamyEngine alloc] init];
+    NSError *error = nil;
+    XCTAssertTrue([engine loadFromBundle:[NSBundle bundleForClass:[self class]] error:&error]);
+    XCTAssertNil(error);
+    NSArray<NSString *> *walkingReadings = @[@"c;4", @"c;6", @"vu/4", @"vu/6"];
+    NSArray<NSString *> *musicReadings = @[@"m,4", @"ul4", @"xk4", @"xl4"];
+    XCTAssertEqualObjects([engine spellsForValue:@"行"], walkingReadings);
+    XCTAssertEqualObjects([engine spellsForValue:@"樂"], musicReadings);
+    XCTAssertEqualObjects([engine spellForValue:@"行"], walkingReadings.firstObject);
+    XCTAssertEqualObjects([engine spellForValue:@"樂"], musicReadings.firstObject);
+
+    for (NSString *base in @[@"行", @"樂"]) {
+        NSArray<NSString *> *readings = [engine spellsForValue:base];
+        NSArray<FSHCandidate *> *candidates = [engine reverseLookupCandidatesForBaseValue:base];
+        NSMutableSet<NSString *> *seenValues = [NSMutableSet set];
+        NSMutableArray<NSString *> *seenReadings = [NSMutableArray array];
+        for (FSHCandidate *candidate in candidates) {
+            XCTAssertFalse([seenValues containsObject:candidate.value], @"Duplicate %@ for %@", candidate.value, base);
+            [seenValues addObject:candidate.value];
+            if (![seenReadings containsObject:candidate.code]) {
+                [seenReadings addObject:candidate.code];
+            }
+        }
+        XCTAssertEqualObjects(seenReadings, readings);
+        XCTAssertTrue([seenValues containsObject:base]);
+    }
+    NSArray<FSHCandidate *> *walking = [engine reverseLookupCandidatesForBaseValue:@"行"];
+    XCTAssertTrue(walking.count >= 4);
+    XCTAssertEqualObjects([walking[0] value], @"行");
+    XCTAssertEqualObjects([walking[1] value], @"沆");
+    XCTAssertEqualObjects([walking[2] value], @"桁");
+    XCTAssertEqualObjects([walking[3] value], @"苀");
+}
+
 - (void)testEngineRequiresBothReadableNonemptyDictionaries {
     NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID UUID].UUIDString];
     NSError *error = nil;
@@ -544,6 +579,7 @@
     XCTAssertEqual([engine reverseLookupCandidatesForBaseValue:@"中"].count, (NSUInteger)0);
     XCTAssertNil([engine shortestCodeForValue:@"中"]);
     XCTAssertNil([engine spellForValue:@"中"]);
+    XCTAssertEqual([engine spellsForValue:@"中"].count, (NSUInteger)0);
 
     engine.spellPath = [directory stringByAppendingPathComponent:@"missing.cin"];
     error = nil;

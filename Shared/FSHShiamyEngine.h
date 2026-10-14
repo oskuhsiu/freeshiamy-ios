@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSArray<FSHCandidate *> *)reverseLookupCandidatesForBaseValue:(NSString *)baseValue;
 - (nullable NSString *)shortestCodeForValue:(NSString *)value;
 - (nullable NSString *)spellForValue:(NSString *)value;
+- (NSArray<NSString *> *)spellsForValue:(NSString *)value;
 
 @end
 
