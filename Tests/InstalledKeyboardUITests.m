@@ -1,5 +1,6 @@
 #import <XCTest/XCTest.h>
 #import <UIKit/UIKit.h>
+#import <math.h>
 
 // Black-box test: this bundle contains no keyboard production classes and never
 // calls the extension controller or a fake text proxy. It drives installed UI.
@@ -192,6 +193,28 @@
             [self capture:@"General already open in Settings detail pane" application:settings];
             return YES;
         }
+    }
+    if ([title isEqualToString:@"Keyboard"]) {
+        // Run 20's retained iPad hierarchy exposes this exact actionable
+        // button inside a cell. Do not resolve unrelated rows or a nav Back.
+        XCUIElementQuery *rows = [settings.cells.buttons matchingIdentifier:@"Keyboard"];
+        XCUIElement *row = rows.firstMatch;
+        NSPredicate *ready = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+            return rows.count == 1 && [row.label isEqualToString:@"Keyboard"] &&
+                   [self isOnScreen:row application:settings] && row.isHittable;
+        }];
+        XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
+            initWithPredicate:ready object:row];
+        if ([XCTWaiter waitForExpectations:@[expectation] timeout:15.0] != XCTWaiterResultCompleted) {
+            [self capture:@"Settings row: Keyboard — first boundary failure" application:settings];
+            XCTFail(@"Expected one on-screen hittable cell button with identifier/label Keyboard; found %lu, label %@",
+                    (unsigned long)rows.count, rows.count == 1 ? row.label : @"not unique");
+            return NO;
+        }
+        [self capture:@"Settings row: Keyboard" application:settings];
+        [row tap];
+        [self capture:@"Opened Settings row: Keyboard" application:settings];
+        return YES;
     }
     if ([title isEqualToString:@"Keyboards"]) {
         // iOS 26.2 exposes this composite row as "Keyboards, 2". Its stable
@@ -852,6 +875,60 @@
     if (!settingsBar || !slider || !value) return;
     [slider adjustToNormalizedSliderPosition:position];
     NSString *expectedLabel = [NSString stringWithFormat:@"%ld%%", (long)percent];
+    NSString *initialLabel = value.label;
+    CGFloat actualPosition = slider.normalizedSliderPosition;
+    CGRect sliderFrame = slider.frame;
+    NSLog(@"[HeightSliderEndpoint] target=%ld initialLabel=%@ normalizedPosition=%.6f sliderFrame=%@",
+          (long)percent, initialLabel, actualPosition, NSStringFromCGRect(sliderFrame));
+    [self capture:[prefix stringByAppendingString:@" initial actual slider endpoint feedback"] application:host];
+    if (![initialLabel isEqualToString:expectedLabel]) {
+        BOOL nearEndpoint = isfinite(actualPosition) &&
+            ((percent == 220 && [initialLabel isEqualToString:@"219%"] && actualPosition >= 0.98 && actualPosition < 1.0) ||
+             (percent == 90 && [initialLabel isEqualToString:@"91%"] && actualPosition > 0.0 && actualPosition <= 0.02));
+        XCUIElementQuery *sliders = [host.sliders matchingIdentifier:@"settings.height.slider"];
+        CGRect hostFrame = host.frame;
+        BOOL finiteBounds = isfinite(sliderFrame.origin.x) && isfinite(sliderFrame.origin.y) &&
+            isfinite(sliderFrame.size.width) && isfinite(sliderFrame.size.height) &&
+            isfinite(hostFrame.origin.x) && isfinite(hostFrame.origin.y) &&
+            isfinite(hostFrame.size.width) && isfinite(hostFrame.size.height) &&
+            sliderFrame.size.width > 0 && sliderFrame.size.height > 0 && hostFrame.size.width > 0 && hostFrame.size.height > 0;
+        BOOL visibleSlider = finiteBounds && sliders.count == 1 && slider.exists && slider.isHittable &&
+            CGRectGetMinX(sliderFrame) >= CGRectGetMinX(hostFrame) && CGRectGetMaxX(sliderFrame) <= CGRectGetMaxX(hostFrame) &&
+            CGRectGetMinY(sliderFrame) >= CGRectGetMinY(hostFrame) && CGRectGetMaxY(sliderFrame) <= CGRectGetMaxY(hostFrame);
+        if (nearEndpoint && visibleSlider) {
+            // Value-space to thumb-start mapping is a bounded near-edge
+            // hypothesis, not a guarantee about UISlider's track geometry.
+            XCUICoordinate *start = [slider coordinateWithNormalizedOffset:CGVectorMake(actualPosition, 0.5)];
+            XCUICoordinate *end = [slider coordinateWithNormalizedOffset:CGVectorMake(position, 0.5)];
+            CGPoint startPoint = start.screenPoint;
+            CGPoint endPoint = end.screenPoint;
+            BOOL safePoints = YES;
+            for (NSValue *pointValue in @[[NSValue valueWithCGPoint:startPoint], [NSValue valueWithCGPoint:endPoint]]) {
+                CGPoint point = pointValue.CGPointValue;
+                // Closed edge bounds intentionally include the requested 0/1 endpoint.
+                safePoints = safePoints && isfinite(point.x) && isfinite(point.y) &&
+                    point.x >= CGRectGetMinX(sliderFrame) && point.x <= CGRectGetMaxX(sliderFrame) &&
+                    point.y >= CGRectGetMinY(sliderFrame) && point.y <= CGRectGetMaxY(sliderFrame) &&
+                    point.x >= CGRectGetMinX(hostFrame) && point.x <= CGRectGetMaxX(hostFrame) &&
+                    point.y >= CGRectGetMinY(hostFrame) && point.y <= CGRectGetMaxY(hostFrame);
+            }
+            NSLog(@"[HeightSliderEndpoint] oneCorrectionAllowed=%@ start=%@ end=%@ hostFrame=%@",
+                  safePoints ? @"YES" : @"NO", NSStringFromCGPoint(startPoint), NSStringFromCGPoint(endPoint), NSStringFromCGRect(hostFrame));
+            if (safePoints) {
+                [start pressForDuration:0.1 thenDragToCoordinate:end];
+                [self capture:[prefix stringByAppendingString:@" after one feedback-gated slider-edge drag"] application:host];
+            } else {
+                [self capture:[prefix stringByAppendingString:@" unsafe slider-edge points — first boundary failure"] application:host];
+                XCTFail(@"Slider endpoint correction points must lie inside actual visible host and slider-edge bounds");
+                return;
+            }
+        } else {
+            [self capture:[prefix stringByAppendingString:@" contradictory slider feedback — first boundary failure"] application:host];
+            XCTFail(@"Endpoint correction requires exact near-endpoint label/position and one fully visible hittable slider; observed %@ at %.6f",
+                    initialLabel, actualPosition);
+            return;
+        }
+    }
     NSPredicate *chosen = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
         return [value.label isEqualToString:expectedLabel] && [self isOnScreen:value application:host] && value.isHittable;
     }];
@@ -1004,6 +1081,346 @@
 
 - (void)testInstalledHeight220AccessibilityDark {
     [self runInstalledHeightScenario:220 normalizedPosition:1.0];
+}
+
+- (XCUIApplication *)launchInstalledActionHost:(NSString *)stage {
+    [XCUIDevice sharedDevice].orientation = UIDeviceOrientationPortrait;
+    XCUIApplication *host = [[XCUIApplication alloc] initWithBundleIdentifier:@"osku.me.freeshiamyios"];
+    NSString *runID = [NSUUID UUID].UUIDString;
+    host.launchEnvironment = @{@"FSH_INSTALLED_SMOKE_RUN_ID": runID};
+    [host launch];
+    XCTAttachment *marker = [XCTAttachment attachmentWithString:runID];
+    marker.name = @"Installed smoke host-geometry run ID";
+    marker.lifetime = XCTAttachmentLifetimeKeepAlways;
+    [self addAttachment:marker];
+    [self capture:stage application:host];
+    return host;
+}
+
+// 1 means a real extension was normalized, 0 means no extension control is
+// visible, and -1 means an observed extension state failed its boundary.
+- (NSInteger)normalizeInstalledActionKeyboardMode:(XCUIApplication *)host stage:(NSString *)stage {
+    XCUIElementQuery *modes = [host.buttons matchingIdentifier:@"key.mode"];
+    if (modes.count > 1) {
+        [self capture:[stage stringByAppendingString:@" ambiguous extension mode — first boundary failure"] application:host];
+        XCTFail(@"%@: expected one extension mode control, found %lu", stage, (unsigned long)modes.count);
+        return -1;
+    }
+    if (modes.count == 1) {
+        XCUIElement *mode = [self requireVisibleUnique:modes
+            stage:[stage stringByAppendingString:@" actual extension mode"] application:host];
+        if (!mode) return -1;
+        if ([mode.label isEqualToString:@"切換至字母鍵盤"]) {
+            [mode tap];
+            [self capture:[stage stringByAppendingString:@" changed actual extension to letters"] application:host];
+        } else if (![mode.label isEqualToString:@"切換至符號鍵盤"]) {
+            [self capture:[stage stringByAppendingString:@" unknown extension mode — first boundary failure"] application:host];
+            XCTFail(@"%@: unrecognized actual extension mode label %@", stage, mode.label);
+            return -1;
+        }
+        return [self requireVisibleUnique:[host.buttons matchingIdentifier:@"key.letter.c"]
+            stage:[stage stringByAppendingString:@" actual letters after mode normalization"] application:host] ? 1 : -1;
+    }
+    XCUIElementQuery *extensionControls = [host.buttons matchingPredicate:
+        [NSPredicate predicateWithFormat:@"identifier BEGINSWITH %@ OR identifier BEGINSWITH %@", @"key.", @"candidate."]];
+    for (XCUIElement *control in extensionControls.allElementsBoundByIndex) {
+        if ([self isOnScreen:control application:host] && control.isHittable) {
+            [self capture:[stage stringByAppendingString:@" extension without mode — first boundary failure"] application:host];
+            XCTFail(@"%@: visible extension control %@ without a unique known mode", stage, control.identifier);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+- (BOOL)readyInstalledActionKeyboard:(XCUIApplication *)host stage:(NSString *)stage {
+    XCUIElement *letter = [host.buttons matchingIdentifier:@"key.letter.c"].firstMatch;
+    [letter waitForExistenceWithTimeout:5.0];
+    NSInteger normalized = [self normalizeInstalledActionKeyboardMode:host stage:stage];
+    if (normalized < 0) return NO;
+    if (normalized == 0) {
+        XCUIElementQuery *switchers = [host.buttons matchingPredicate:
+            [NSPredicate predicateWithFormat:@"label == %@ OR label == %@", @"Next keyboard", @"Globe"]];
+        XCUIElement *switcher = [self requireVisibleUnique:switchers
+            stage:[stage stringByAppendingString:@" observed system switcher"] application:host];
+        if (!switcher) return NO;
+        [switcher pressForDuration:1.2];
+        [self capture:[stage stringByAppendingString:@" actual input-mode picker"] application:host];
+        XCUIElement *choice = [self observedInputSwitcherCell:@"FreeShiamy — freeshiamy-ios, Chinese"
+            stage:[stage stringByAppendingString:@" FreeShiamy picker choice"] application:host];
+        if (!choice) return NO;
+        [choice tap];
+        if (![self requireVisibleUnique:[host.buttons matchingIdentifier:@"key.mode"]
+            stage:[stage stringByAppendingString:@" extension mode after picker"] application:host]) return NO;
+        normalized = [self normalizeInstalledActionKeyboardMode:host
+            stage:[stage stringByAppendingString:@" after real picker selection"]];
+        if (normalized < 0) return NO;
+        if (normalized == 0) {
+            [self capture:[stage stringByAppendingString:@" selected extension missing — first boundary failure"] application:host];
+            XCTFail(@"%@: selected extension exposes no actual mode control", stage);
+            return NO;
+        }
+    }
+    if (![self requireVisibleUnique:[host.buttons matchingIdentifier:@"key.letter.c"]
+        stage:[stage stringByAppendingString:@" installed letters visible"] application:host]) return NO;
+    XCUIElement *status = [host.staticTexts matchingIdentifier:@"candidate.status"].firstMatch;
+    XCTNSPredicateExpectation *loaded = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:[NSPredicate predicateWithFormat:@"exists == NO"] object:status];
+    if ([XCTWaiter waitForExpectations:@[loaded] timeout:30.0] != XCTWaiterResultCompleted) {
+        [self capture:[stage stringByAppendingString:@" dictionary — first boundary failure"] application:host];
+        XCTFail(@"%@: installed dictionary did not become ready", stage);
+        return NO;
+    }
+    [self capture:[stage stringByAppendingString:@" dictionary ready"] application:host];
+    return YES;
+}
+
+- (BOOL)expectActionRaw:(NSString *)expected allowEmpty:(BOOL)allowEmpty
+            application:(XCUIApplication *)host stage:(NSString *)stage {
+    XCUIElementQuery *raws = [host.buttons matchingIdentifier:@"candidate.raw"];
+    NSPredicate *ready = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        if (!expected) {
+            return raws.count == 0 || (allowEmpty && raws.count == 1 && raws.firstMatch.label.length == 0);
+        }
+        return raws.count == 1 && [raws.firstMatch.label isEqualToString:expected] &&
+            [self isOnScreen:raws.firstMatch application:host] && raws.firstMatch.isHittable;
+    }];
+    XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:ready object:host];
+    if ([XCTWaiter waitForExpectations:@[expectation] timeout:15.0] != XCTWaiterResultCompleted) {
+        [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:host];
+        XCTFail(@"%@: expected raw %@, found %lu controls and label %@", stage, expected ?: @"absent",
+                (unsigned long)raws.count, raws.count == 1 ? raws.firstMatch.label : @"not unique");
+        return NO;
+    }
+    [self capture:stage application:host];
+    return YES;
+}
+
+- (XCUIElement *)requireActionLabel:(NSString *)label query:(XCUIElementQuery *)query
+                              stage:(NSString *)stage application:(XCUIApplication *)host {
+    XCUIElement *element = query.firstMatch;
+    NSPredicate *ready = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return query.count == 1 && [element.label isEqualToString:label] &&
+            [self isOnScreen:element application:host] && element.isHittable;
+    }];
+    XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:ready object:element];
+    if ([XCTWaiter waitForExpectations:@[expectation] timeout:20.0] != XCTWaiterResultCompleted) {
+        [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:host];
+        XCTFail(@"%@: expected unique visible label %@, found %lu and %@", stage, label,
+                (unsigned long)query.count, query.count == 1 ? element.label : @"not unique");
+        return nil;
+    }
+    [self capture:stage application:host];
+    return element;
+}
+
+- (BOOL)expectCodeSearchEmptyQuery:(XCUIApplication *)host stage:(NSString *)stage {
+    XCUIElementQuery *queries = [host.textFields matchingIdentifier:@"codeSearch.query"];
+    XCUIElementQuery *results = [host.staticTexts matchingIdentifier:@"codeSearch.results"];
+    XCUIElement *query = queries.firstMatch;
+    XCUIElement *result = results.firstMatch;
+    NSString *placeholder = @"輸入要查的字";
+    NSPredicate *empty = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        if (queries.count != 1 || results.count != 1) return NO;
+        id value = query.value;
+        BOOL emptyValue = value == nil || ([value isKindOfClass:NSString.class] &&
+            ([(NSString *)value isEqualToString:@""] || [(NSString *)value isEqualToString:placeholder]));
+        return emptyValue &&
+            [query.placeholderValue isEqualToString:placeholder] &&
+            [result.label isEqualToString:@"輸入一個或多個字開始查詢。"] &&
+            [self isOnScreen:query application:host] && query.isHittable &&
+            [self isOnScreen:result application:host] && result.isHittable;
+    }];
+    XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:empty object:host];
+    if ([XCTWaiter waitForExpectations:@[expectation] timeout:20.0] != XCTWaiterResultCompleted) {
+        [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:host];
+        NSUInteger queryCount = queries.count;
+        NSUInteger resultsCount = results.count;
+        id observedValue = queryCount == 1 ? query.value : @"query not unique";
+        NSString *valueClass = queryCount == 1
+            ? (observedValue ? NSStringFromClass([observedValue class]) : @"nil") : @"query not unique";
+        NSString *observedPlaceholder = queryCount == 1 ? query.placeholderValue : @"query not unique";
+        NSLog(@"[CodeSearchEmptyQuery] stage=%@ queryCount=%lu resultsCount=%lu valueClass=%@ value=%@ placeholder=%@",
+              stage, (unsigned long)queryCount, (unsigned long)resultsCount,
+              valueClass, observedValue, observedPlaceholder);
+        XCTFail(@"%@: expected unique visible empty CodeSearch placeholder/query and dictionary-ready empty results", stage);
+        return NO;
+    }
+    [self capture:stage application:host];
+    return YES;
+}
+
+- (BOOL)requireActionKeyboardDismissed:(XCUIApplication *)host stage:(NSString *)stage {
+    XCUIElementQuery *letters = [host.buttons matchingIdentifier:@"key.letter.c"];
+    XCUIElementQuery *returns = [host.buttons matchingIdentifier:@"key.return"];
+    NSPredicate *gone = [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return letters.count == 0 && returns.count == 0 && host.keyboards.count == 0;
+    }];
+    XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc]
+        initWithPredicate:gone object:host];
+    if ([XCTWaiter waitForExpectations:@[expectation] timeout:15.0] != XCTWaiterResultCompleted) {
+        [self capture:[stage stringByAppendingString:@" — first boundary failure"] application:host];
+        XCTFail(@"%@: actual keyboard did not dismiss after host Search", stage);
+        return NO;
+    }
+    [self capture:stage application:host];
+    return YES;
+}
+
+- (BOOL)requireInstalledActionHeight100:(XCUIApplication *)host stage:(NSString *)stage {
+    XCUIElement *settings = [self hostControlByScrolling:[host.buttons matchingIdentifier:@"smoke.appSettings"]
+        stage:[stage stringByAppendingString:@" actual Settings action"] application:host];
+    if (!settings) return NO;
+    [settings tap];
+    XCUIElement *bar = [self requireVisibleUnique:[host.navigationBars matchingIdentifier:@"設定"]
+        stage:[stage stringByAppendingString:@" actual Settings navigation"] application:host];
+    XCUIElement *slider = [self requireVisibleUnique:[host.sliders matchingIdentifier:@"settings.height.slider"]
+        stage:[stage stringByAppendingString:@" actual height slider"] application:host];
+    if (!bar || !slider) return NO;
+    if (![self requireActionLabel:@"100%" query:[host.staticTexts matchingIdentifier:@"settings.height.value"]
+        stage:[stage stringByAppendingString:@" observed height exactly 100%"] application:host]) return NO;
+    XCUIElement *back = [self requireVisibleUnique:bar.buttons
+        stage:[stage stringByAppendingString:@" unique Settings Back"] application:host];
+    if (!back) return NO;
+    [self capture:[NSString stringWithFormat:@"%@ Settings Back label: %@", stage, back.label] application:host];
+    [back tap];
+    [self capture:[stage stringByAppendingString:@" returned from Settings without changing height"] application:host];
+    return YES;
+}
+
+- (void)testInstalledBracketRootsUseRealLongPressAndLiteralSymbols {
+    XCUIApplication *host = [self launchInstalledActionHost:@"Bracket roots fresh portrait host"];
+    if (![self requireInstalledActionHeight100:host stage:@"Bracket roots baseline settings"]) return;
+    XCUIElement *multi = [self hostControlByScrolling:[host.textViews matchingIdentifier:@"smoke.multiLine"]
+        stage:@"Bracket roots initially empty multiline field" application:host];
+    if (!multi) return;
+    if (![self expectValue:@"" of:multi stage:@"Bracket roots initial host empty" application:host]) return;
+    [multi tap];
+    if (![self readyInstalledActionKeyboard:host stage:@"Bracket roots activation"]) return;
+    if (![self expectActionRaw:nil allowEmpty:YES application:host stage:@"Bracket roots initial composition empty"]) return;
+
+    XCUIElement *open = [self requireVisibleUnique:[host.buttons matchingIdentifier:@"key.root.open"]
+        stage:@"Opening root before real long press" application:host];
+    if (!open) return;
+    [open pressForDuration:0.6];
+    if (![self expectActionRaw:@"[" allowEmpty:NO application:host stage:@"Opening root after real long press"]) return;
+    if (![self expectValue:@"" of:multi stage:@"Opening root inserted no primary comma" application:host]) return;
+    if (![self tapKeyboardControl:@"key.letter.f" application:host]) return;
+    if (![self expectActionRaw:@"[f" allowEmpty:NO application:host stage:@"Opening root f composition"]) return;
+    XCUIElement *first = [self requireActionLabel:@"【" query:[host.buttons matchingIdentifier:@"candidate.inline.0"]
+        stage:@"Opening bracket exact first candidate" application:host];
+    if (!first) return;
+    [first tap];
+    if (![self expectValue:@"【" of:multi stage:@"Opening bracket candidate committed" application:host]) return;
+    if (![self expectActionRaw:nil allowEmpty:NO application:host stage:@"Opening bracket composition cleared"]) return;
+
+    XCUIElement *close = [self requireVisibleUnique:[host.buttons matchingIdentifier:@"key.root.close"]
+        stage:@"Closing root before real long press" application:host];
+    if (!close) return;
+    [close pressForDuration:0.6];
+    if (![self expectActionRaw:@"]" allowEmpty:NO application:host stage:@"Closing root after real long press"]) return;
+    if (![self expectValue:@"【" of:multi stage:@"Closing root inserted no primary period" application:host]) return;
+    if (![self tapKeyboardControl:@"key.letter.f" application:host]) return;
+    if (![self expectActionRaw:@"]f" allowEmpty:NO application:host stage:@"Closing root f composition"]) return;
+    first = [self requireActionLabel:@"】" query:[host.buttons matchingIdentifier:@"candidate.inline.0"]
+        stage:@"Closing bracket exact first candidate" application:host];
+    if (!first) return;
+    [first tap];
+    if (![self expectValue:@"【】" of:multi stage:@"Closing bracket candidate committed" application:host]) return;
+    if (![self expectActionRaw:nil allowEmpty:NO application:host stage:@"Closing bracket composition cleared"]) return;
+
+    if (![self tapKeyboardControl:@"key.mode" application:host]) return;
+    XCUIElement *page = [self requireVisibleUnique:[host.buttons matchingPredicate:
+        [NSPredicate predicateWithFormat:@"label == %@", @"符號頁面"]]
+        stage:@"Literal brackets actual symbol page" application:host];
+    if (!page) return;
+    if (![page.value isEqual:@"第一頁"]) {
+        [self capture:@"Literal bracket symbol page — first boundary failure" application:host];
+        XCTFail(@"Expected actual symbol page 第一頁, observed %@", page.value);
+        return;
+    }
+    XCUIElement *literal = [self requireActionLabel:@"[" query:[host.buttons matchingPredicate:
+        [NSPredicate predicateWithFormat:@"label == %@", @"["]]
+        stage:@"Literal opening bracket on symbols" application:host];
+    if (!literal) return;
+    [literal tap];
+    if (![self expectValue:@"【】[" of:multi stage:@"Symbols inserted literal opening bracket" application:host]) return;
+    if (![self expectActionRaw:nil allowEmpty:NO application:host stage:@"Literal opening bracket has no raw composition"]) return;
+    literal = [self requireActionLabel:@"]" query:[host.buttons matchingPredicate:
+        [NSPredicate predicateWithFormat:@"label == %@", @"]"]]
+        stage:@"Literal closing bracket on symbols" application:host];
+    if (!literal) return;
+    [literal tap];
+    if (![self expectValue:@"【】[]" of:multi stage:@"Symbols inserted both literal brackets exactly" application:host]) return;
+    if (![self expectActionRaw:nil allowEmpty:NO application:host stage:@"Literal closing bracket has no raw composition"]) return;
+    [self capture:@"Installed bracket-root and symbol gestures complete" application:host];
+}
+
+- (void)testInstalledCodeSearchReturnCommitsThenDismisses {
+    XCUIApplication *host = [self launchInstalledActionHost:@"CodeSearch fresh portrait host"];
+    if (![self requireInstalledActionHeight100:host stage:@"CodeSearch baseline settings"]) return;
+    XCUIElement *action = [self hostControlByScrolling:[host.buttons matchingPredicate:
+        [NSPredicate predicateWithFormat:@"label == %@", @"查嘸蝦米字根"]]
+        stage:@"CodeSearch actual main-panel action" application:host];
+    if (!action) return;
+    [action tap];
+    XCUIElement *query = [self requireVisibleUnique:[host.textFields matchingIdentifier:@"codeSearch.query"]
+        stage:@"CodeSearch actual query field" application:host];
+    XCUIElement *results = [self requireVisibleUnique:[host.staticTexts matchingIdentifier:@"codeSearch.results"]
+        stage:@"CodeSearch actual results view" application:host];
+    if (!query || !results) return;
+    if (![self expectCodeSearchEmptyQuery:host stage:@"CodeSearch query initially empty"]) return;
+    [query tap];
+    if (![self readyInstalledActionKeyboard:host stage:@"CodeSearch activation"]) return;
+    if (![self requireActionLabel:@"搜尋" query:[host.buttons matchingIdentifier:@"key.return"]
+        stage:@"CodeSearch installed Search trait" application:host]) return;
+    if (![self tapKeyboardControl:@"key.letter.c" application:host]) return;
+    if (![self tapKeyboardControl:@"key.letter.i" application:host]) return;
+    if (![self expectActionRaw:@"ci" allowEmpty:NO application:host stage:@"CodeSearch live ci composition"]) return;
+    if (![self expectCodeSearchEmptyQuery:host stage:@"CodeSearch composition keeps host query empty"]) return;
+    if (![self tapKeyboardControl:@"key.return" application:host]) return;
+    if (![self expectValue:@"ci" of:query stage:@"First Search commits literal ci" application:host]) return;
+    if (![self expectActionRaw:nil allowEmpty:NO application:host stage:@"First Search clears raw composition"]) return;
+    if (![self requireVisibleUnique:[host.buttons matchingIdentifier:@"key.letter.c"]
+        stage:@"First Search leaves installed keyboard active" application:host]) return;
+    if (![self requireActionLabel:@"搜尋" query:[host.buttons matchingIdentifier:@"key.return"]
+        stage:@"First Search preserves Search label" application:host]) return;
+    if (![self tapKeyboardControl:@"key.return" application:host]) return;
+    if (![self requireActionKeyboardDismissed:host stage:@"Second Search dismisses through CodeSearch host"]) return;
+    if (![self expectValue:@"ci" of:query stage:@"Second Search adds no newline to query" application:host]) return;
+
+    query = [self requireVisibleUnique:[host.textFields matchingIdentifier:@"codeSearch.query"]
+        stage:@"CodeSearch query before refocus" application:host];
+    if (!query) return;
+    [query tap];
+    if (![self readyInstalledActionKeyboard:host stage:@"CodeSearch refocus activation"]) return;
+    if (![self tapKeyboardControl:@"key.delete" application:host]) return;
+    if (![self expectValue:@"c" of:query stage:@"First Delete removes i from actual query" application:host]) return;
+    if (![self tapKeyboardControl:@"key.delete" application:host]) return;
+    if (![self expectCodeSearchEmptyQuery:host stage:@"Second Delete empties actual query"]) return;
+    if (![self tapKeyboardControl:@"key.letter.c" application:host]) return;
+    if (![self tapKeyboardControl:@"key.letter.i" application:host]) return;
+    if (![self expectActionRaw:@"ci" allowEmpty:NO application:host stage:@"CodeSearch recomposed ci"]) return;
+    XCUIElement *middle = [self requireActionLabel:@"中" query:[host.buttons matchingIdentifier:@"candidate.inline.0"]
+        stage:@"CodeSearch actual 中 candidate" application:host];
+    if (!middle) return;
+    [middle tap];
+    if (![self expectValue:@"中" of:query stage:@"CodeSearch 中 candidate committed" application:host]) return;
+    if (![self expectActionRaw:nil allowEmpty:NO application:host stage:@"CodeSearch 中 composition cleared"]) return;
+    NSString *expectedResults = @"中：最短 CI；其他 CJ、CJV";
+    if (![self requireActionLabel:expectedResults query:[host.staticTexts matchingIdentifier:@"codeSearch.results"]
+        stage:@"CodeSearch exact native code-search results" application:host]) return;
+    if (![self requireActionLabel:@"搜尋" query:[host.buttons matchingIdentifier:@"key.return"]
+        stage:@"CodeSearch Search before final dismissal" application:host]) return;
+    if (![self tapKeyboardControl:@"key.return" application:host]) return;
+    if (![self requireActionKeyboardDismissed:host stage:@"Search dismisses with 中 results"]) return;
+    if (![self expectValue:@"中" of:query stage:@"Search preserves committed 中 query" application:host]) return;
+    if (![self requireActionLabel:expectedResults query:[host.staticTexts matchingIdentifier:@"codeSearch.results"]
+        stage:@"Search preserves exact 中 results" application:host]) return;
+    [self capture:@"Installed CodeSearch Return behavior complete" application:host];
 }
 
 @end

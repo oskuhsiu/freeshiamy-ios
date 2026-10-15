@@ -5,6 +5,9 @@ export DEVELOPER_DIR=/Applications/Xcode_26.2.app/Contents/Developer
 ARTIFACTS="${GITHUB_WORKSPACE:-$PWD}/ci-artifacts"
 TEMP_ROOT="${RUNNER_TEMP:-/tmp}"
 mkdir -p "$ARTIFACTS"
+ACCEPTANCE_SCENARIO="${FSH_ACCEPTANCE_SCENARIO:-height}"
+case "$ACCEPTANCE_SCENARIO" in
+    height)
 case "${FSH_HEIGHT_ENDPOINT:-}" in
     90|220) HEIGHT_ENDPOINT="$FSH_HEIGHT_ENDPOINT" ;;
     *)
@@ -16,6 +19,22 @@ esac
 if [[ "$HEIGHT_ENDPOINT" == 90 ]]; then UNSELECTED_HEIGHT_ENDPOINT=220; else UNSELECTED_HEIGHT_ENDPOINT=90; fi
 printf 'Selected height endpoint: %s%%\nUnselected endpoint: %s%% not-run/pending in this matrix job\n' \
     "$HEIGHT_ENDPOINT" "$UNSELECTED_HEIGHT_ENDPOINT" | tee "$ARTIFACTS/height-endpoint-selection.log"
+        ;;
+    actions)
+        if [[ "${FSH_HEIGHT_ENDPOINT+x}" == x ]]; then
+            echo "Actions require FSH_HEIGHT_ENDPOINT genuinely unset, including no explicit empty value" \
+                | tee "$ARTIFACTS/acceptance-scenario-selection.log"
+            exit 1
+        fi
+        echo 'Selected scenario: input-actions; height endpoints not-run in this job (same-SHA workflow dependencies required)' \
+            | tee "$ARTIFACTS/acceptance-scenario-selection.log"
+        ;;
+    *)
+        echo "Invalid FSH_ACCEPTANCE_SCENARIO: '$ACCEPTANCE_SCENARIO'; expected height or actions" \
+            | tee "$ARTIFACTS/acceptance-scenario-selection.log"
+        exit 1
+        ;;
+esac
 echo "[stage] preflight"
 
 if [[ ! -d "$DEVELOPER_DIR" ]]; then
@@ -40,6 +59,8 @@ python3 ci/test-installed-geometry-parser.py > "$ARTIFACTS/geometry-parser-selft
 python3 ci/check-installed-ax-process.py --self-test > "$ARTIFACTS/installed-ax-parser-selftest.log" 2>&1
 python3 ci/check-installed-height-process.py --self-test > "$ARTIFACTS/installed-height-parser-selftest.log" 2>&1
 python3 ci/check-installed-height-milestones.py --self-test > "$ARTIFACTS/installed-height-milestone-selftest.log" 2>&1
+python3 ci/check-installed-action-process.py --self-test > "$ARTIFACTS/installed-action-parser-selftest.log" 2>&1
+python3 ci/check-content-size-readback.py --self-test > "$ARTIFACTS/content-size-readback-selftest.log" 2>&1
 
 # The repository intentionally does not track a developer's signing overrides.
 touch Config/Local.xcconfig
@@ -99,9 +120,18 @@ else:
     sys.exit("iOS 26.2 simulator runtime is unavailable")
 ')
 
-DEVICE_ID=$(xcrun simctl create "freeshiamy-ci-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${DEVICE_LABEL}-height-${HEIGHT_ENDPOINT}" \
+if [[ "$ACCEPTANCE_SCENARIO" == height ]]; then
+    DEVICE_SCOPE="height-${HEIGHT_ENDPOINT}"
+else
+    DEVICE_SCOPE=input-actions
+fi
+DEVICE_ID=$(xcrun simctl create "freeshiamy-ci-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${DEVICE_LABEL}-${DEVICE_SCOPE}" \
     "$DEVICE_TYPE" "$RUNTIME")
-echo "Job-owned simulator: $DEVICE_ID; type: $DEVICE_TYPE; runtime: $RUNTIME; selected height endpoint: ${HEIGHT_ENDPOINT}%" | tee -a "$ARTIFACTS/device-selection.log"
+if [[ "$ACCEPTANCE_SCENARIO" == height ]]; then
+    echo "Job-owned simulator: $DEVICE_ID; type: $DEVICE_TYPE; runtime: $RUNTIME; selected height endpoint: ${HEIGHT_ENDPOINT}%" | tee -a "$ARTIFACTS/device-selection.log"
+else
+    echo "Job-owned simulator: $DEVICE_ID; type: $DEVICE_TYPE; runtime: $RUNTIME; selected scenario: input-actions; height endpoint unset" | tee -a "$ARTIFACTS/device-selection.log"
+fi
 cleanup() {
     xcrun simctl shutdown "$DEVICE_ID" >/dev/null 2>&1 || true
     xcrun simctl delete "$DEVICE_ID" >/dev/null 2>&1 || true
@@ -305,6 +335,108 @@ collect_ax_service_log() {
     fi
 }
 
+# Actions have their own stage window; the unchanged AX/height path below is
+# covered by successful same-SHA workflow dependencies, not repeated here.
+collect_action_service_log() {
+    local label="$1" predicate="$2" start_file="$3" status=0 records
+    xcrun simctl spawn "$DEVICE_ID" log show \
+        --start "$(cat "$start_file")" \
+        --style compact --info --debug --predicate "$predicate" \
+        > "$ARTIFACTS/$label.log" 2>&1 || status=$?
+    records=$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}' "$ARTIFACTS/$label.log" || true)
+    printf '\ndiagnostic_command_status=%s matching_event_records=%s\n' "$status" "$records" \
+        >> "$ARTIFACTS/$label.log"
+    if [[ "$status" != 0 ]]; then
+        printf '\ndiagnostic_missing=%s public log show status=%s\n' "$label" "$status" \
+            >> "$ARTIFACTS/$label.log"
+    elif [[ "$records" == 0 ]]; then
+        printf '\ndiagnostic_missing=%s no matching event records\n' "$label" \
+            >> "$ARTIFACTS/$label.log"
+    fi
+}
+
+if [[ "$ACCEPTANCE_SCENARIO" == actions ]]; then
+    action_content_size_result=skipped
+    action_appearance_result=skipped
+    action_ui_result=skipped
+    action_process_result=skipped
+    if [[ "$focused_result" == 0 && "$hosted_result" == 0 && "$plist_result" == 0 && \
+          "$ui_result" == 0 && "$host_geometry_result" == 0 && "$process_result" == 0 ]]; then
+        action_content_size_result=0
+        action_appearance_result=0
+        echo '[stage] Input actions public simulator traits large/light' | tee "$ARTIFACTS/installed-input-actions-traits.log"
+        if ! xcrun simctl ui "$DEVICE_ID" content_size large \
+            >> "$ARTIFACTS/installed-input-actions-traits.log" 2>&1; then action_content_size_result=1; fi
+        if ! xcrun simctl ui "$DEVICE_ID" content_size \
+            > "$ARTIFACTS/installed-input-actions-content-size-readback.log" 2>&1; then action_content_size_result=1; fi
+        if ! python3 ci/check-content-size-readback.py "$ARTIFACTS/installed-input-actions-content-size-readback.log" large \
+            > "$ARTIFACTS/installed-input-actions-content-size-check.log" 2>&1; then action_content_size_result=1; fi
+        if ! xcrun simctl ui "$DEVICE_ID" appearance light \
+            >> "$ARTIFACTS/installed-input-actions-traits.log" 2>&1; then action_appearance_result=1; fi
+        if ! xcrun simctl ui "$DEVICE_ID" appearance \
+            > "$ARTIFACTS/installed-input-actions-appearance-readback.log" 2>&1; then action_appearance_result=1; fi
+        if ! grep -qx light "$ARTIFACTS/installed-input-actions-appearance-readback.log"; then action_appearance_result=1; fi
+        if [[ "$action_content_size_result" == 0 && "$action_appearance_result" == 0 ]]; then
+            date -u +'%Y-%m-%d %H:%M:%S' > "$ARTIFACTS/installed-input-actions-stage-start.txt"
+            record_app_identity installed-input-actions-before
+            action_ui_result=0
+            run_stage installed-input-actions InstalledKeyboardSmoke 300 360 \
+                '-only-testing:InstalledKeyboardUITests/InstalledKeyboardUITests/testInstalledBracketRootsUseRealLongPressAndLiteralSymbols' \
+                '-only-testing:InstalledKeyboardUITests/InstalledKeyboardUITests/testInstalledCodeSearchReturnCommitsThenDismisses' \
+                || action_ui_result=$?
+            action_selection_result=0
+            python3 - "$ARTIFACTS/installed-input-actions-xcodebuild.log" \
+                > "$ARTIFACTS/installed-input-actions-selection.log" 2>&1 <<'PY_SELECTION' || action_selection_result=$?
+import pathlib, re, sys
+log = pathlib.Path(sys.argv[1]).read_text(errors="replace")
+expected = {"testInstalledBracketRootsUseRealLongPressAndLiteralSymbols",
+            "testInstalledCodeSearchReturnCommitsThenDismisses"}
+completed = re.findall(r"^Test Case '-\[InstalledKeyboardUITests (\w+)\]' (passed|failed) ", log, re.M)
+summaries = re.findall(r"^\s*Executed (\d+) tests?, with (\d+) failures", log, re.M)
+if (len(completed) != 2 or {name for name, _ in completed} != expected or
+        any(result != "passed" for _, result in completed) or not summaries or
+        any(count != "2" or failures != "0" for count, failures in summaries)):
+    sys.exit(f"Expected exactly two selected cases passed once each and two executed tests; cases={completed}; summaries={summaries}")
+print("Exactly two selected installed action cases passed once each; executed-test summaries agree")
+PY_SELECTION
+            if [[ "$action_ui_result" == 0 && "$action_selection_result" != 0 ]]; then action_ui_result=$action_selection_result; fi
+            record_app_identity installed-input-actions-after
+            collect_action_service_log installed-input-actions-extension-process 'process == "FreeShiamyKeyboard"' \
+                "$ARTIFACTS/installed-input-actions-stage-start.txt"
+            collect_action_service_log installed-input-actions-host-geometry \
+                'process == "freeshiamy-ios" AND eventMessage CONTAINS "[HostGeometry]"' \
+                "$ARTIFACTS/installed-input-actions-stage-start.txt"
+            action_process_result=0
+            python3 ci/check-installed-action-process.py "$ARTIFACTS/installed-input-actions-extension-process.log" \
+                "$ARTIFACTS/installed-input-actions-attachments" \
+                > "$ARTIFACTS/installed-input-actions-process-check.log" 2>&1 || action_process_result=$?
+            if [[ "$action_ui_result" != 0 || "$action_process_result" != 0 ]]; then
+                collect_action_service_log installed-input-actions-host-full-process 'process == "freeshiamy-ios"' \
+                    "$ARTIFACTS/installed-input-actions-stage-start.txt"
+                collect_action_service_log installed-input-actions-service-launch \
+                    'subsystem CONTAINS[c] "PlugInKit" OR subsystem CONTAINS[c] "ExtensionKit" OR subsystem CONTAINS[c] "RunningBoard" OR subsystem CONTAINS[c] "LaunchServices" OR process == "pkd" OR process == "runningboardd" OR process == "lsd" OR process == "launchd" OR eventMessage CONTAINS "osku.me.freeshiamyios.keyboard"' \
+                    "$ARTIFACTS/installed-input-actions-stage-start.txt"
+                collect_action_service_log installed-input-actions-install-registration \
+                    'process == "installd" OR subsystem CONTAINS[c] "MobileInstallation" OR ((eventMessage CONTAINS "osku.me.freeshiamyios") AND (eventMessage CONTAINS[c] "install" OR eventMessage CONTAINS[c] "register" OR eventMessage CONTAINS[c] "registration"))' \
+                    "$ARTIFACTS/installed-input-actions-stage-start.txt"
+            fi
+        else
+            echo '[stage] Input actions skipped because public trait readbacks failed' | tee "$ARTIFACTS/installed-input-actions-skipped.log"
+        fi
+    else
+        echo '[stage] Input actions skipped because local baseline acceptance gates did not all succeed' \
+            | tee "$ARTIFACTS/installed-input-actions-skipped.log"
+    fi
+    printf 'scenario=input-actions\nhosted-focused=%s\nhosted-full=%s\nplist=%s\ninstalled-extension=%s\ninstalled-host-geometry=%s\nprocess-log=%s\nactions-content-size=%s\nactions-appearance=%s\nactions-ui=%s\nactions-process=%s\nax-height-status=not-run/dependency-gated\n' \
+        "$focused_result" "$hosted_result" "$plist_result" "$ui_result" "$host_geometry_result" "$process_observation" \
+        "$action_content_size_result" "$action_appearance_result" "$action_ui_result" "$action_process_result" \
+        | tee "$ARTIFACTS/stage-status.txt"
+    if [[ "$focused_result" != 0 || "$hosted_result" != 0 || "$plist_result" != 0 || "$ui_result" != 0 || \
+          "$host_geometry_result" != 0 || "$process_result" != 0 || "$action_content_size_result" != 0 || \
+          "$action_appearance_result" != 0 || "$action_ui_result" != 0 || "$action_process_result" != 0 ]]; then exit 1; fi
+    exit 0
+fi
+
 ax_content_size_result=skipped
 ax_result=skipped
 ax_process_result=skipped
@@ -387,7 +519,8 @@ run_height_stage() {
         >> "$ARTIFACTS/$label-traits.log" 2>&1; then content_result=1; fi
     if ! xcrun simctl ui "$DEVICE_ID" content_size \
         > "$ARTIFACTS/$label-content-size-readback.log" 2>&1; then content_result=1; fi
-    if ! grep -qx "$content_size" "$ARTIFACTS/$label-content-size-readback.log"; then content_result=1; fi
+    if ! python3 ci/check-content-size-readback.py "$ARTIFACTS/$label-content-size-readback.log" "$content_size" \
+        > "$ARTIFACTS/$label-content-size-check.log" 2>&1; then content_result=1; fi
     if ! xcrun simctl ui "$DEVICE_ID" appearance "$appearance" \
         >> "$ARTIFACTS/$label-traits.log" 2>&1; then appearance_result=1; fi
     if ! xcrun simctl ui "$DEVICE_ID" appearance \

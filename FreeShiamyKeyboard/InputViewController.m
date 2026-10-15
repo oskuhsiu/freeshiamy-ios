@@ -166,6 +166,10 @@ typedef NS_ENUM(NSInteger, FSHDictionaryLoadState) {
           [NSDate date].timeIntervalSince1970);
 #endif
     [self updatePreferredContentSize];
+#if DEBUG
+    self.hasLoggedLayoutMetrics = NO;
+    [self logLayoutMetricsIfChanged];
+#endif
 }
 
 - (void)viewDidLayoutSubviews {

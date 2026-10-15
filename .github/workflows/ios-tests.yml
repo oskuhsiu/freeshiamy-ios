@@ -22,8 +22,9 @@ jobs:
       FSH_HEIGHT_ENDPOINT: ${{ matrix.height_endpoint }}
     steps:
       - uses: actions/checkout@v4
+      # Run 20: 21m20s baseline + 360s case + ~134s overhead = ~29m34s.
       - name: Build and run XCTest
-        timeout-minutes: 25
+        timeout-minutes: 30
         run: bash ci/test-ios.sh
       - name: Benchmark native Foundation lookup
         if: ${{ always() && matrix.height_endpoint == 90 }}
@@ -59,8 +60,9 @@ jobs:
       FSH_SIM_DEVICE_TYPE: com.apple.CoreSimulator.SimDeviceType.iPad-Air-11-inch-M3
     steps:
       - uses: actions/checkout@v4
+      # Same measured height scope; per-test bounds and 40m job stay fixed.
       - name: Build and run XCTest on job-owned iPad
-        timeout-minutes: 25
+        timeout-minutes: 30
         run: bash ci/test-ios.sh
       - name: Save iPad diagnostics
         if: always()
@@ -70,3 +72,50 @@ jobs:
           path: ci-artifacts/
           if-no-files-found: warn
           retention-days: 14
+
+  input_actions:
+    needs: [simulator, ipad]
+    runs-on: macos-15
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: iphone
+            device_type: com.apple.CoreSimulator.SimDeviceType.iPhone-16
+          - device: ipad
+            device_type: com.apple.CoreSimulator.SimDeviceType.iPad-Air-11-inch-M3
+    env:
+      FSH_ACCEPTANCE_SCENARIO: actions
+      FSH_SIM_DEVICE_TYPE: ${{ matrix.device_type }}
+    steps:
+      - uses: actions/checkout@v4
+      # Run 20 common baseline 17m10s + two 360s cases + ~134s overhead
+      # = ~31m24s, bounded to this 35m action step; job remains 40m.
+      - name: Build and run installed input actions on fresh owned simulator
+        timeout-minutes: 35
+        run: bash ci/test-ios.sh
+      - name: Save input-actions diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-${{ matrix.device }}-input-actions-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+  acceptance:
+    if: always()
+    needs: [simulator, ipad, input_actions]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all same-SHA height and input-action jobs successful
+        env:
+          IPHONE_HEIGHT_RESULT: ${{ needs.simulator.result }}
+          IPAD_HEIGHT_RESULT: ${{ needs.ipad.result }}
+          INPUT_ACTIONS_RESULT: ${{ needs.input_actions.result }}
+        run: |
+          printf 'iPhone heights=%s\niPad heights=%s\ninput actions=%s\n' "$IPHONE_HEIGHT_RESULT" "$IPAD_HEIGHT_RESULT" "$INPUT_ACTIONS_RESULT"
+          test "$IPHONE_HEIGHT_RESULT" = success
+          test "$IPAD_HEIGHT_RESULT" = success
+          test "$INPUT_ACTIONS_RESULT" = success
