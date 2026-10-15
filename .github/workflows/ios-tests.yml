@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   simulator:
-    if: "${{ !((github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') || (github.event_name == 'push' && github.event.before == 'a50822f63ebfbbb3f1fc215d91244471353d66cf' && github.event.head_commit.message == 'ci: verify simulator app-group identity only') || (github.event_name == 'push' && github.event.before == '7eb7dc50b36cc3032701f59d933b93efecb5ae55' && github.event.head_commit.message == 'ci: decode retained run26 activation only')) }}"
+    if: "${{ !((github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') || (github.event_name == 'push' && github.event.before == 'a50822f63ebfbbb3f1fc215d91244471353d66cf' && github.event.head_commit.message == 'ci: verify simulator app-group identity only') || (github.event_name == 'push' && github.event.before == '7eb7dc50b36cc3032701f59d933b93efecb5ae55' && github.event.head_commit.message == 'ci: decode retained run26 activation only') || (github.event_name == 'push' && github.event.before == 'da449c6be22ec00e877ca20f7b0fed556766de71' && github.event.head_commit.message == 'ci: probe ipad keyboard xpcproxy pid only')) }}"
     runs-on: macos-15
     timeout-minutes: 40
     strategy:
@@ -50,7 +50,7 @@ jobs:
           retention-days: 14
 
   ipad:
-    if: "${{ !((github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') || (github.event_name == 'push' && github.event.before == 'a50822f63ebfbbb3f1fc215d91244471353d66cf' && github.event.head_commit.message == 'ci: verify simulator app-group identity only') || (github.event_name == 'push' && github.event.before == '7eb7dc50b36cc3032701f59d933b93efecb5ae55' && github.event.head_commit.message == 'ci: decode retained run26 activation only')) }}"
+    if: "${{ !((github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') || (github.event_name == 'push' && github.event.before == 'a50822f63ebfbbb3f1fc215d91244471353d66cf' && github.event.head_commit.message == 'ci: verify simulator app-group identity only') || (github.event_name == 'push' && github.event.before == '7eb7dc50b36cc3032701f59d933b93efecb5ae55' && github.event.head_commit.message == 'ci: decode retained run26 activation only') || (github.event_name == 'push' && github.event.before == 'da449c6be22ec00e877ca20f7b0fed556766de71' && github.event.head_commit.message == 'ci: probe ipad keyboard xpcproxy pid only')) }}"
     runs-on: macos-15
     timeout-minutes: 40
     strategy:
@@ -76,7 +76,7 @@ jobs:
           retention-days: 14
 
   input_actions:
-    if: "${{ !((github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') || (github.event_name == 'push' && github.event.before == 'a50822f63ebfbbb3f1fc215d91244471353d66cf' && github.event.head_commit.message == 'ci: verify simulator app-group identity only') || (github.event_name == 'push' && github.event.before == '7eb7dc50b36cc3032701f59d933b93efecb5ae55' && github.event.head_commit.message == 'ci: decode retained run26 activation only')) }}"
+    if: "${{ !((github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') || (github.event_name == 'push' && github.event.before == 'a50822f63ebfbbb3f1fc215d91244471353d66cf' && github.event.head_commit.message == 'ci: verify simulator app-group identity only') || (github.event_name == 'push' && github.event.before == '7eb7dc50b36cc3032701f59d933b93efecb5ae55' && github.event.head_commit.message == 'ci: decode retained run26 activation only') || (github.event_name == 'push' && github.event.before == 'da449c6be22ec00e877ca20f7b0fed556766de71' && github.event.head_commit.message == 'ci: probe ipad keyboard xpcproxy pid only')) }}"
     needs: [simulator, ipad]
     runs-on: macos-15
     timeout-minutes: 40
@@ -108,7 +108,7 @@ jobs:
           retention-days: 14
 
   acceptance:
-    if: "${{ always() && !((github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') || (github.event_name == 'push' && github.event.before == 'a50822f63ebfbbb3f1fc215d91244471353d66cf' && github.event.head_commit.message == 'ci: verify simulator app-group identity only') || (github.event_name == 'push' && github.event.before == '7eb7dc50b36cc3032701f59d933b93efecb5ae55' && github.event.head_commit.message == 'ci: decode retained run26 activation only')) }}"
+    if: "${{ always() && !((github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') || (github.event_name == 'push' && github.event.before == 'a50822f63ebfbbb3f1fc215d91244471353d66cf' && github.event.head_commit.message == 'ci: verify simulator app-group identity only') || (github.event_name == 'push' && github.event.before == '7eb7dc50b36cc3032701f59d933b93efecb5ae55' && github.event.head_commit.message == 'ci: decode retained run26 activation only') || (github.event_name == 'push' && github.event.before == 'da449c6be22ec00e877ca20f7b0fed556766de71' && github.event.head_commit.message == 'ci: probe ipad keyboard xpcproxy pid only')) }}"
     needs: [simulator, ipad, input_actions]
     runs-on: ubuntu-latest
     steps:
@@ -186,5 +186,25 @@ jobs:
         with:
           name: run26-two-retained-cases-decoded-${{ github.run_id }}-${{ github.run_attempt }}
           path: ci-artifacts/run26-activation-decode/
+          if-no-files-found: error
+          retention-days: 14
+
+  activation_pid_probe:
+    if: "${{ github.event_name == 'push' && github.event.before == 'da449c6be22ec00e877ca20f7b0fed556766de71' && github.event.head_commit.message == 'ci: probe ipad keyboard xpcproxy pid only' }}"
+    runs-on: macos-15
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Observe one identity-bound iPad keyboard activation
+        timeout-minutes: 30
+        run: bash ci/diagnose-ipad-activation-pid.sh
+      - name: Save PID activation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipad-activation-pid-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-artifacts/
           if-no-files-found: error
           retention-days: 14
