@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   simulator:
+    if: "${{ !(github.event_name == 'push' && github.event.before == 'b0ee7ea823d736e625aca40e527dfabd131f4f09' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
     runs-on: macos-15
     timeout-minutes: 40
     strategy:
@@ -49,6 +50,7 @@ jobs:
           retention-days: 14
 
   ipad:
+    if: "${{ !(github.event_name == 'push' && github.event.before == 'b0ee7ea823d736e625aca40e527dfabd131f4f09' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
     runs-on: macos-15
     timeout-minutes: 40
     strategy:
@@ -74,6 +76,7 @@ jobs:
           retention-days: 14
 
   input_actions:
+    if: "${{ !(github.event_name == 'push' && github.event.before == 'b0ee7ea823d736e625aca40e527dfabd131f4f09' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
     needs: [simulator, ipad]
     runs-on: macos-15
     timeout-minutes: 40
@@ -105,7 +108,7 @@ jobs:
           retention-days: 14
 
   acceptance:
-    if: always()
+    if: "${{ always() && !(github.event_name == 'push' && github.event.before == 'b0ee7ea823d736e625aca40e527dfabd131f4f09' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
     needs: [simulator, ipad, input_actions]
     runs-on: ubuntu-latest
     steps:
@@ -119,3 +122,26 @@ jobs:
           test "$IPHONE_HEIGHT_RESULT" = success
           test "$IPAD_HEIGHT_RESULT" = success
           test "$INPUT_ACTIONS_RESULT" = success
+
+  decode_retained_run21:
+    if: "${{ github.event_name == 'push' && github.event.before == 'b0ee7ea823d736e625aca40e527dfabd131f4f09' && github.event.head_commit.message == 'ci: decode retained run21 evidence only' }}"
+    runs-on: macos-15
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode two retained run-21 failures only
+        timeout-minutes: 17
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash ci/decode-run21-evidence.sh
+      - name: Save diagnostic-only decoded evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run21-two-retained-cases-decoded-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-artifacts/run21-decode/
+          if-no-files-found: error
+          retention-days: 14
