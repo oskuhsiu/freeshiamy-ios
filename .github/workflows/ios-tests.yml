@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   simulator:
-    if: "${{ !(github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
+    if: "${{ !((github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') || (github.event_name == 'push' && github.event.before == 'a50822f63ebfbbb3f1fc215d91244471353d66cf' && github.event.head_commit.message == 'ci: verify simulator app-group identity only')) }}"
     runs-on: macos-15
     timeout-minutes: 40
     strategy:
@@ -50,7 +50,7 @@ jobs:
           retention-days: 14
 
   ipad:
-    if: "${{ !(github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
+    if: "${{ !((github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') || (github.event_name == 'push' && github.event.before == 'a50822f63ebfbbb3f1fc215d91244471353d66cf' && github.event.head_commit.message == 'ci: verify simulator app-group identity only')) }}"
     runs-on: macos-15
     timeout-minutes: 40
     strategy:
@@ -76,7 +76,7 @@ jobs:
           retention-days: 14
 
   input_actions:
-    if: "${{ !(github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
+    if: "${{ !((github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') || (github.event_name == 'push' && github.event.before == 'a50822f63ebfbbb3f1fc215d91244471353d66cf' && github.event.head_commit.message == 'ci: verify simulator app-group identity only')) }}"
     needs: [simulator, ipad]
     runs-on: macos-15
     timeout-minutes: 40
@@ -108,7 +108,7 @@ jobs:
           retention-days: 14
 
   acceptance:
-    if: "${{ always() && !(github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
+    if: "${{ always() && !((github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') || (github.event_name == 'push' && github.event.before == 'a50822f63ebfbbb3f1fc215d91244471353d66cf' && github.event.head_commit.message == 'ci: verify simulator app-group identity only')) }}"
     needs: [simulator, ipad, input_actions]
     runs-on: ubuntu-latest
     steps:
@@ -143,5 +143,25 @@ jobs:
         with:
           name: run21-two-retained-cases-decoded-${{ github.run_id }}-${{ github.run_attempt }}
           path: ci-artifacts/run21-decode/
+          if-no-files-found: error
+          retention-days: 14
+
+  simulator_identity_probe:
+    if: "${{ github.event_name == 'push' && github.event.before == 'a50822f63ebfbbb3f1fc215d91244471353d66cf' && github.event.head_commit.message == 'ci: verify simulator app-group identity only' }}"
+    runs-on: macos-15
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify arm64 Simulator identity only
+        timeout-minutes: 17
+        run: bash ci/verify-simulator-build-identity.sh
+      - name: Save build-only identity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-app-group-identity-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-artifacts/simulator-build-identity/
           if-no-files-found: error
           retention-days: 14

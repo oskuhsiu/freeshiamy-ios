@@ -2,6 +2,7 @@
 set -euo pipefail
 
 export DEVELOPER_DIR=/Applications/Xcode_26.2.app/Contents/Developer
+source ci/simulator-build-args.sh
 ARTIFACTS="${GITHUB_WORKSPACE:-$PWD}/ci-artifacts"
 TEMP_ROOT="${RUNNER_TEMP:-/tmp}"
 mkdir -p "$ARTIFACTS"
@@ -152,13 +153,15 @@ xcrun simctl spawn "$DEVICE_ID" defaults read -g AppleLanguages \
 run_stage() {
     local label="$1" scheme="$2" allowance="$3" maximum="$4" result=0
     shift 4
+    local destination="platform=iOS Simulator,id=$DEVICE_ID"
+    fsh_validate_simulator_destination "$destination" || return 1
     echo "[stage] $label on $DEVICE_ID"
     set +e
     xcodebuild test \
         -project freeshiamy-ios.xcodeproj \
         -scheme "$scheme" \
         -configuration Debug \
-        -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+        -destination "$destination" \
         -testLanguage en \
         -testRegion US \
         -parallel-testing-enabled NO \
@@ -169,7 +172,7 @@ run_stage() {
         -derivedDataPath "$TEMP_ROOT/freeshiamy-derived-data" \
         -resultBundlePath "$ARTIFACTS/$label.xcresult" \
         "$@" \
-        CODE_SIGNING_ALLOWED=NO \
+        "${FSH_CI_SIMULATOR_BUILD_ARGS[@]}" \
         2>&1 | tee "$ARTIFACTS/$label-xcodebuild.log"
     local -a pipeline_status=("${PIPESTATUS[@]}")
     local build_result=${pipeline_status[0]} log_result=${pipeline_status[1]}
@@ -192,6 +195,49 @@ run_stage() {
     return "$result"
 }
 
+# Both built and installed bundle copies must carry the actual Simulator
+# entitlement section and valid ad-hoc signatures. Source plists alone do not
+# establish the extension's effective identity.
+verify_ci_bundle_pair() {
+    local label="$1" app_bundle="$2" result=0
+    local scope bundle executable source_entitlements expected_id expected_executable actual_id actual_executable
+    for scope in app keyboard-extension; do
+        if [[ "$scope" == app ]]; then
+            bundle="$app_bundle"
+            expected_id=osku.me.freeshiamyios
+            expected_executable=freeshiamy-ios
+            source_entitlements=freeshiamy-ios/freeshiamy-ios.entitlements
+        else
+            bundle="$app_bundle/PlugIns/FreeShiamyKeyboard.appex"
+            expected_id=osku.me.freeshiamyios.keyboard
+            expected_executable=FreeShiamyKeyboard
+            source_entitlements=FreeShiamyKeyboard/FreeShiamyKeyboard.entitlements
+        fi
+        mkdir -p "$ARTIFACTS/$label-$scope" || { result=1; continue; }
+        actual_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$bundle/Info.plist" 2>&1) || result=1
+        actual_executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$bundle/Info.plist" 2>&1) || result=1
+        printf 'expected_id=%s\nactual_id=%s\nexpected_executable=%s\nactual_executable=%s\n' \
+            "$expected_id" "$actual_id" "$expected_executable" "$actual_executable" \
+            > "$ARTIFACTS/$label-$scope/identity.txt"
+        if [[ "$actual_id" != "$expected_id" || "$actual_executable" != "$expected_executable" ]]; then
+            result=1
+            continue
+        fi
+        executable="$bundle/$actual_executable"
+        shasum -a 256 "$bundle/Info.plist" "$source_entitlements" "$executable" \
+            > "$ARTIFACTS/$label-$scope/source-and-built-hashes.txt" 2>&1 || result=1
+        codesign --display --verbose=4 "$bundle" \
+            > "$ARTIFACTS/$label-$scope/codesign-display.log" 2>&1 || result=1
+        codesign --verify --strict --verbose=4 "$bundle" \
+            > "$ARTIFACTS/$label-$scope/codesign-verify.log" 2>&1 || result=1
+        if ! grep -qx 'Signature=adhoc' "$ARTIFACTS/$label-$scope/codesign-display.log"; then result=1; fi
+        python3 ci/check-simulator-effective-entitlements.py "$executable" "$source_entitlements" \
+            "$ARTIFACTS/$label-$scope" > "$ARTIFACTS/$label-$scope/effective-check.log" 2>&1 || result=1
+    done
+    printf 'scope=%s\nidentity_result=%s\n' "$label" "$result" > "$ARTIFACTS/$label-identity-check.log"
+    return "$result"
+}
+
 focused_result=0
 run_stage hosted-focused freeshiamy-ios 120 180 \
     '-only-testing:KeyboardInputTests/KeyboardInputTests/testAXCompactAlternateTypographySettlesAcrossRepeatedLayouts' \
@@ -201,6 +247,18 @@ run_stage hosted-focused freeshiamy-ios 120 180 \
     '-only-testing:KeyboardInputTests/KeyboardInputTests/testHostPanelScrollsFocusedFieldsAboveSceneBackedKeyboard' \
     '-only-testing:KeyboardInputTests/KeyboardInputTests/testHostCodeSearchRendersInAttachedWindow' \
     || focused_result=$?
+built_identity_result=skipped
+if [[ "$focused_result" == 0 ]]; then
+    built_identity_result=0
+    verify_ci_bundle_pair built-after-focused \
+        "$TEMP_ROOT/freeshiamy-derived-data/Build/Products/Debug-iphonesimulator/freeshiamy-ios.app" \
+        || built_identity_result=$?
+    if [[ "$built_identity_result" != 0 ]]; then
+        printf 'hosted-focused=%s\nbuilt-simulator-identity=%s\ninstalled-stages=not-run/identity-failed\n' \
+            "$focused_result" "$built_identity_result" | tee "$ARTIFACTS/stage-status.txt"
+        exit 1
+    fi
+fi
 hosted_result=skipped
 if [[ "$focused_result" == 0 ]]; then
     hosted_result=0
@@ -317,6 +375,38 @@ record_app_identity() {
     } > "$ARTIFACTS/$label-app-identity.log" 2>&1
 }
 
+# The public simctl app-container selector returns the installed .app bundle.
+# Its separate group-container query is diagnostic path evidence only, never
+# a claim that the keyboard extension successfully read shared defaults.
+installed_identity_result=skipped
+installed_container_status=0
+xcrun simctl get_app_container "$DEVICE_ID" osku.me.freeshiamyios app \
+    > "$ARTIFACTS/installed-identity-app-container.log" 2>&1 || installed_container_status=$?
+if [[ "$installed_container_status" == 0 ]]; then
+    installed_app_bundle=$(cat "$ARTIFACTS/installed-identity-app-container.log")
+    if [[ -d "$installed_app_bundle" ]]; then
+        installed_identity_result=0
+        verify_ci_bundle_pair installed-default "$installed_app_bundle" || installed_identity_result=$?
+    else
+        installed_identity_result=1
+        echo 'diagnostic_missing=installed app-container path is not a directory' \
+            >> "$ARTIFACTS/installed-identity-app-container.log"
+    fi
+elif [[ "$ui_result" == 0 ]]; then
+    installed_identity_result=1
+fi
+group_container_status=0
+xcrun simctl get_app_container "$DEVICE_ID" osku.me.freeshiamyios group.osku.me.freeshiamy_ios \
+    > "$ARTIFACTS/installed-identity-group-container.log" 2>&1 || group_container_status=$?
+printf '\nscope=read-only group path; not extension read access\nget_app_container_status=%s\n' \
+    "$group_container_status" >> "$ARTIFACTS/installed-identity-group-container.log"
+record_app_identity installed-default-identity
+if [[ "$ui_result" == 0 && "$installed_identity_result" != 0 ]]; then
+    printf 'installed-extension=%s\ninstalled-simulator-identity=%s\nax-height-stages=not-run/identity-failed\n' \
+        "$ui_result" "$installed_identity_result" | tee "$ARTIFACTS/stage-status.txt"
+    exit 1
+fi
+
 collect_ax_service_log() {
     local label="$1" predicate="$2" status=0 records
     xcrun simctl spawn "$DEVICE_ID" log show \
@@ -332,6 +422,33 @@ collect_ax_service_log() {
     elif [[ "$records" == 0 ]]; then
         printf '\ndiagnostic_missing=%s no matching event records\n' "$label" \
             >> "$ARTIFACTS/$label.log"
+    fi
+}
+
+# End bounds are rounded up to the next whole second so a fractional-second
+# test completion is included by log show, without widening by more than 1s.
+capture_stage_end_utc() {
+    python3 -c 'import datetime; now=datetime.datetime.now(datetime.timezone.utc); print((now+datetime.timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M:%S"))'
+}
+
+# This is the unfiltered runner-host macOS store, distinct from simctl's
+# Simulator store. The stage's end was captured before later diagnostics.
+collect_runner_host_launch_log() {
+    local label="$1" start_file="$2" end_file="$3" status=0 records start end
+    start=$(cat "$start_file")
+    end=$(cat "$end_file")
+    local -a command=(log show --start "${start}+0000" --end "${end}+0000"
+        --timezone UTC --style compact --info --debug)
+    "${command[@]}" \
+        > "$ARTIFACTS/$label.log" 2>&1 || status=$?
+    records=$(grep -Ec '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}' "$ARTIFACTS/$label.log" || true)
+    printf '\ncommand=' >> "$ARTIFACTS/$label.log"
+    printf '%q ' "${command[@]}" >> "$ARTIFACTS/$label.log"
+    printf '\nscope=unfiltered runner-host-macOS (not Simulator; default private-data redaction)\nstart_utc_seconds_floor=%s UTC\nend_utc_seconds_ceil=%s UTC (at most 1s after stage-end capture)\ndiagnostic_command_status=%s event_records=%s\n' \
+        "$start" "$end" "$status" "$records" >> "$ARTIFACTS/$label.log"
+    if [[ "$status" != 0 || "$records" == 0 ]]; then
+        printf 'diagnostic_missing=%s runner-host log status=%s records=%s\n' \
+            "$label" "$status" "$records" >> "$ARTIFACTS/$label.log"
     fi
 }
 
@@ -427,11 +544,12 @@ PY_SELECTION
         echo '[stage] Input actions skipped because local baseline acceptance gates did not all succeed' \
             | tee "$ARTIFACTS/installed-input-actions-skipped.log"
     fi
-    printf 'scenario=input-actions\nhosted-focused=%s\nhosted-full=%s\nplist=%s\ninstalled-extension=%s\ninstalled-host-geometry=%s\nprocess-log=%s\nactions-content-size=%s\nactions-appearance=%s\nactions-ui=%s\nactions-process=%s\nax-height-status=not-run/dependency-gated\n' \
-        "$focused_result" "$hosted_result" "$plist_result" "$ui_result" "$host_geometry_result" "$process_observation" \
+    printf 'scenario=input-actions\nhosted-focused=%s\nbuilt-simulator-identity=%s\nhosted-full=%s\nplist=%s\ninstalled-extension=%s\ninstalled-simulator-identity=%s\ninstalled-host-geometry=%s\nprocess-log=%s\nactions-content-size=%s\nactions-appearance=%s\nactions-ui=%s\nactions-process=%s\nax-height-status=not-run/dependency-gated\n' \
+        "$focused_result" "$built_identity_result" "$hosted_result" "$plist_result" "$ui_result" "$installed_identity_result" "$host_geometry_result" "$process_observation" \
         "$action_content_size_result" "$action_appearance_result" "$action_ui_result" "$action_process_result" \
         | tee "$ARTIFACTS/stage-status.txt"
-    if [[ "$focused_result" != 0 || "$hosted_result" != 0 || "$plist_result" != 0 || "$ui_result" != 0 || \
+    if [[ "$focused_result" != 0 || "$built_identity_result" != 0 || "$hosted_result" != 0 || "$plist_result" != 0 || "$ui_result" != 0 || \
+          "$installed_identity_result" != 0 || \
           "$host_geometry_result" != 0 || "$process_result" != 0 || "$action_content_size_result" != 0 || \
           "$action_appearance_result" != 0 || "$action_ui_result" != 0 || "$action_process_result" != 0 ]]; then exit 1; fi
     exit 0
@@ -461,6 +579,7 @@ if [[ "$ui_result" == 0 && "$host_geometry_result" == 0 && "$process_result" == 
         run_stage installed-adaptive-ax InstalledKeyboardSmoke 300 360 \
             '-only-testing:InstalledKeyboardUITests/InstalledKeyboardUITests/testInstalledAccessibilityMoreAndOffscreenCandidate' \
             || ax_result=$?
+        capture_stage_end_utc > "$ARTIFACTS/installed-ax-stage-end.txt"
         if [[ "$ax_result" == 0 ]] && \
            [[ "$(grep -Fc "Test Case '-[InstalledKeyboardUITests testInstalledAccessibilityMoreAndOffscreenCandidate]' passed" "$ARTIFACTS/installed-adaptive-ax-xcodebuild.log" || true)" != 1 ]]; then
             echo '[stage] AX installed smoke did not complete exactly one selected test' \
@@ -484,6 +603,10 @@ if [[ "$ui_result" == 0 && "$host_geometry_result" == 0 && "$process_result" == 
         ax_process_result=0
         python3 ci/check-installed-ax-process.py "$ARTIFACTS/installed-ax-extension-process.log" \
             > "$ARTIFACTS/installed-ax-process-check.log" 2>&1 || ax_process_result=$?
+        if [[ "$ax_result" != 0 || "$ax_process_result" != 0 ]]; then
+            collect_runner_host_launch_log installed-ax-runner-host-launch \
+                "$ARTIFACTS/installed-ax-stage-start.txt" "$ARTIFACTS/installed-ax-stage-end.txt"
+        fi
     fi
 else
     echo '[stage] Installed AX/More test skipped because default installed smoke or evidence failed' \
@@ -533,6 +656,7 @@ run_height_stage() {
         run_stage "$label" InstalledKeyboardSmoke 300 360 \
             "-only-testing:InstalledKeyboardUITests/InstalledKeyboardUITests/$test_name" \
             || ui_stage_result=$?
+        capture_stage_end_utc > "$ARTIFACTS/$label-stage-end.txt"
         if [[ "$ui_stage_result" == 0 ]] && \
            [[ "$(grep -Fc "Test Case '-[InstalledKeyboardUITests $test_name]' passed" "$ARTIFACTS/$label-xcodebuild.log" || true)" != 1 ]]; then
             echo '[stage] Height installed scenario did not complete exactly one selected test' \
@@ -540,18 +664,6 @@ run_height_stage() {
             ui_stage_result=1
         fi
         record_app_identity "$label-after"
-        if [[ "$ui_stage_result" != 0 ]]; then
-            # This stage's failure stays failed. The extra read-only timeline
-            # uses its own start file and never overwrites the AX start marker.
-            collect_height_service_log "$label-host-full-process" 'process == "freeshiamy-ios"' \
-                "$ARTIFACTS/$label-stage-start.txt"
-            collect_height_service_log "$label-service-launch" \
-                'subsystem CONTAINS[c] "PlugInKit" OR subsystem CONTAINS[c] "ExtensionKit" OR subsystem CONTAINS[c] "RunningBoard" OR subsystem CONTAINS[c] "LaunchServices" OR process == "pkd" OR process == "runningboardd" OR process == "lsd" OR process == "launchd" OR eventMessage CONTAINS "osku.me.freeshiamyios.keyboard"' \
-                "$ARTIFACTS/$label-stage-start.txt"
-            collect_height_service_log "$label-install-registration" \
-                'process == "installd" OR subsystem CONTAINS[c] "MobileInstallation" OR ((eventMessage CONTAINS "osku.me.freeshiamyios") AND (eventMessage CONTAINS[c] "install" OR eventMessage CONTAINS[c] "register" OR eventMessage CONTAINS[c] "registration"))' \
-                "$ARTIFACTS/$label-stage-start.txt"
-        fi
         xcrun simctl spawn "$DEVICE_ID" log show \
             --start "$(cat "$ARTIFACTS/$label-stage-start.txt")" --style compact --info --debug \
             --predicate 'process == "FreeShiamyKeyboard"' \
@@ -572,6 +684,21 @@ run_height_stage() {
         python3 ci/check-installed-height-milestones.py "$ARTIFACTS/$label-host-geometry.log" \
             "$ARTIFACTS/$label-attachments" \
             > "$ARTIFACTS/$label-milestones-check.log" 2>&1 || milestone_stage_result=$?
+        if [[ "$ui_stage_result" != 0 || "$process_stage_result" != 0 || \
+              "$geometry_stage_result" != 0 || "$milestone_stage_result" != 0 ]]; then
+            # Preserve the same read-only timeline for any failed acceptance
+            # gate, including failures detected only by a post-UI evidence check.
+            collect_height_service_log "$label-host-full-process" 'process == "freeshiamy-ios"' \
+                "$ARTIFACTS/$label-stage-start.txt"
+            collect_height_service_log "$label-service-launch" \
+                'subsystem CONTAINS[c] "PlugInKit" OR subsystem CONTAINS[c] "ExtensionKit" OR subsystem CONTAINS[c] "RunningBoard" OR subsystem CONTAINS[c] "LaunchServices" OR process == "pkd" OR process == "runningboardd" OR process == "lsd" OR process == "launchd" OR eventMessage CONTAINS "osku.me.freeshiamyios.keyboard"' \
+                "$ARTIFACTS/$label-stage-start.txt"
+            collect_height_service_log "$label-install-registration" \
+                'process == "installd" OR subsystem CONTAINS[c] "MobileInstallation" OR ((eventMessage CONTAINS "osku.me.freeshiamyios") AND (eventMessage CONTAINS[c] "install" OR eventMessage CONTAINS[c] "register" OR eventMessage CONTAINS[c] "registration"))' \
+                "$ARTIFACTS/$label-stage-start.txt"
+            collect_runner_host_launch_log "$label-runner-host-launch" \
+                "$ARTIFACTS/$label-stage-start.txt" "$ARTIFACTS/$label-stage-end.txt"
+        fi
     else
         echo '[stage] Height installed scenario skipped because public trait readback failed' \
             | tee "$ARTIFACTS/$label-skipped.log"
@@ -608,13 +735,13 @@ fi
 # Missing unified-log evidence blocks a completed installed-extension claim for
 # this first run. Classify that as inconclusive integration evidence, not a
 # demonstrated keyboard product failure; retained UI evidence diagnoses it.
-printf 'hosted-focused=%s\nhosted-full=%s\nplist=%s\ninstalled-extension=%s\ninstalled-host-geometry=%s\nprocess-log=%s\ninstalled-ax-content-size=%s\ninstalled-ax=%s\ninstalled-ax-process=%s\n' \
-    "$focused_result" "$hosted_result" "$plist_result" "$ui_result" "$host_geometry_result" "$process_observation" \
+printf 'hosted-focused=%s\nbuilt-simulator-identity=%s\nhosted-full=%s\nplist=%s\ninstalled-extension=%s\ninstalled-simulator-identity=%s\ninstalled-host-geometry=%s\nprocess-log=%s\ninstalled-ax-content-size=%s\ninstalled-ax=%s\ninstalled-ax-process=%s\n' \
+    "$focused_result" "$built_identity_result" "$hosted_result" "$plist_result" "$ui_result" "$installed_identity_result" "$host_geometry_result" "$process_observation" \
     "$ax_content_size_result" "$ax_result" "$ax_process_result" | tee "$ARTIFACTS/stage-status.txt"
 printf 'selected-height-endpoint=%s\nunselected-height-endpoint=%s\nunselected-height-status=not-run/pending\nselected-height-content-size=%s\nselected-height-appearance=%s\nselected-height-ui=%s\nselected-height-process=%s\nselected-height-host-geometry=%s\nselected-height-milestones=%s\n' \
     "$HEIGHT_ENDPOINT" "$UNSELECTED_HEIGHT_ENDPOINT" \
     "$selected_height_content_size_result" "$selected_height_appearance_result" "$selected_height_ui_result" \
     "$selected_height_process_result" "$selected_height_host_geometry_result" "$selected_height_milestone_result" \
     | tee -a "$ARTIFACTS/stage-status.txt"
-if [[ "$focused_result" != 0 || "$hosted_result" != 0 || "$plist_result" != 0 || "$ui_result" != 0 || "$host_geometry_result" != 0 || "$process_result" != 0 || "$ax_content_size_result" != 0 || "$ax_result" != 0 || "$ax_process_result" != 0 || \
+if [[ "$focused_result" != 0 || "$built_identity_result" != 0 || "$hosted_result" != 0 || "$plist_result" != 0 || "$ui_result" != 0 || "$installed_identity_result" != 0 || "$host_geometry_result" != 0 || "$process_result" != 0 || "$ax_content_size_result" != 0 || "$ax_result" != 0 || "$ax_process_result" != 0 || \
       "$selected_height_content_size_result" != 0 || "$selected_height_appearance_result" != 0 || "$selected_height_ui_result" != 0 || "$selected_height_process_result" != 0 || "$selected_height_host_geometry_result" != 0 || "$selected_height_milestone_result" != 0 ]]; then exit 1; fi
