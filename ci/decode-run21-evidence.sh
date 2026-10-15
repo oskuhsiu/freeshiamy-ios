@@ -26,13 +26,34 @@ fi
     uname -a
     xcodebuild -version
     xcrun xcresulttool version
-    xcrun xcresulttool export diagnostics --help || true
-    log help show
-} > "$output/tool-versions-and-help.txt" 2>&1 || { overall=1; exit "$overall"; }
-if ! grep -q -- '--output-path' "$output/tool-versions-and-help.txt" || \
-   ! grep -q -- '--timezone' "$output/tool-versions-and-help.txt" || \
-   ! grep -q -- 'compact' "$output/tool-versions-and-help.txt"; then
-    echo 'Required retained-decoder options missing from installed tools' >&2
+} > "$output/tool-versions.txt" 2>&1 || { overall=1; exit "$overall"; }
+if xcrun xcresulttool export diagnostics --help > "$output/xcresulttool-diagnostics-help.txt" 2>&1; then
+    xcresult_help_status=0
+else
+    xcresult_help_status=$?
+fi
+if log help show > "$output/log-show-help.txt" 2>&1; then
+    log_help_status=0
+else
+    log_help_status=$?
+fi
+printf 'xcresulttool_diagnostics_help_status=%s\nlog_show_help_status=%s\n' \
+    "$xcresult_help_status" "$log_help_status" > "$output/help-exit-status.txt"
+cat "$output/tool-versions.txt" "$output/xcresulttool-diagnostics-help.txt" \
+    "$output/log-show-help.txt" > "$output/tool-versions-and-help.txt" \
+    || { overall=1; exit "$overall"; }
+if [[ "$xcresult_help_status" != 0 && "$xcresult_help_status" != 1 ]] || \
+   [[ "$log_help_status" != 0 && "$log_help_status" != 1 ]] || \
+   ! grep -Fq -- 'xcresulttool export diagnostics --path <path> --output-path <output-path>' "$output/xcresulttool-diagnostics-help.txt" || \
+   ! grep -Fq -- 'usage: log show [options] <archive>' "$output/log-show-help.txt" || \
+   ! grep -Fq -- '--start <date>' "$output/log-show-help.txt" || \
+   ! grep -Fq -- '--end <date>' "$output/log-show-help.txt" || \
+   ! grep -Fq -- '--style <style>' "$output/log-show-help.txt" || \
+   ! grep -Fq -- 'compact)' "$output/log-show-help.txt" || \
+   ! grep -Fq -- '--timezone local | <tz>' "$output/log-show-help.txt" || \
+   ! grep -Fq -- '--[no-]info' "$output/log-show-help.txt" || \
+   ! grep -Fq -- '--[no-]debug' "$output/log-show-help.txt"; then
+    echo 'Required retained-decoder help usage/options missing or unexpected exit status' >&2
     overall=1; exit "$overall"
 fi
 python3 ci/count-run21-log-events.py --self-test > "$output/compact-event-counter-selftest.txt" 2>&1 \
@@ -105,7 +126,7 @@ decode_case() {
     # applied: host-macOS launch and preferences events matter here.
     find "$case_dir/diagnostics" -type f | sort > "$case_dir/diagnostic-files.txt" \
         || { fail_case "$case_dir" 'diagnostic inventory failed'; return 1; }
-    find "$case_dir/diagnostics" -type f \( -iname '*session*.txt' -o -iname '*StandardOutputAndStandardError*' -o -iname '*xctest*.log' \) \
+    find "$case_dir/diagnostics" -type f \( -iname '*session*.txt' -o -iname '*session*.log' -o -iname '*StandardOutputAndStandardError*' -o -iname '*xctest*.log' \) \
         | sort > "$case_dir/xctest-session-text-paths.txt" \
         || { fail_case "$case_dir" 'XCTest session inventory failed'; return 1; }
     if ! python3 - "$case_dir" <<'PY'
@@ -139,8 +160,9 @@ PY
         printf '%s\t%s\n' "$index" "${archive#"$case_dir"/}" >> "$case_dir/logarchive-status.txt"
         decoded="$case_dir/decoded-logs/archive-${index}-all-processes.log"
         error="$case_dir/decoded-logs/archive-${index}-stderr.log"
-        if log show --archive "$archive" --info --debug \
+        if log show --info --debug \
             --timezone UTC --style compact --start "${start}+0000" --end "${end}+0000" \
+            "$archive" \
             > "$decoded" 2> "$error"; then
             if python3 ci/count-run21-log-events.py "$decoded" "${start}+0000" "${end}+0000" \
                 > "$case_dir/decoded-logs/archive-${index}-event-count.txt" 2> "$case_dir/decoded-logs/archive-${index}-count-stderr.txt"; then
