@@ -39,6 +39,9 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 @property (nonatomic, copy) NSArray *currentQuerySignature;
 @property (nonatomic, assign) BOOL digitShortcutsAvailable;
 @property (nonatomic, assign) BOOL spaceShortcutAvailable;
+#if DEBUG
+@property (nonatomic, assign) NSUInteger morePanChangedLogCount;
+#endif
 
 @end
 
@@ -359,6 +362,9 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
     self.moreScrollView.accessibilityIdentifier = @"candidate.expandedList";
     self.moreScrollView.translatesAutoresizingMaskIntoConstraints = NO;
     self.moreScrollView.showsVerticalScrollIndicator = YES;
+#if DEBUG
+    [self.moreScrollView.panGestureRecognizer addTarget:self action:@selector(observeMorePan:)];
+#endif
     [self.moreContainer addSubview:self.moreScrollView];
 
     self.moreContentView = [[UIView alloc] init];
@@ -618,10 +624,34 @@ static const NSUInteger kFSHCandidateMoreColumns = 5;
 }
 
 - (void)handleCandidateTap:(UIButton *)sender {
+#if DEBUG
+    UIScrollView *scroll = self.moreScrollView;
+    UIPanGestureRecognizer *pan = scroll.panGestureRecognizer;
+    NSLog(@"[MoreGesture] candidate action area=%@ index=%lu expanded=%d pan=%ld translation=%@ offset=%@ bounds=%@ contentSize=%@ dragging=%d decelerating=%d",
+          sender.superview == self.moreContentView ? @"expanded" : @"inline",
+          (unsigned long)sender.tag, self.isExpanded, (long)pan.state,
+          NSStringFromCGPoint([pan translationInView:scroll]), NSStringFromCGPoint(scroll.contentOffset),
+          NSStringFromCGRect(scroll.bounds), NSStringFromCGSize(scroll.contentSize),
+          scroll.isDragging, scroll.isDecelerating);
+#endif
     if ([self.delegate respondsToSelector:@selector(candidateBarView:didSelectCandidateAtIndex:)]) {
         [self.delegate candidateBarView:self didSelectCandidateAtIndex:sender.tag];
     }
 }
+
+#if DEBUG
+- (void)observeMorePan:(UIPanGestureRecognizer *)pan {
+    UIGestureRecognizerState state = pan.state;
+    if (state == UIGestureRecognizerStateBegan) self.morePanChangedLogCount = 0;
+    // Log transitions and only the first few changed samples per gesture.
+    if (state == UIGestureRecognizerStateChanged && self.morePanChangedLogCount++ >= 3) return;
+    UIScrollView *scroll = self.moreScrollView;
+    NSLog(@"[MoreGesture] pan state=%ld translation=%@ offset=%@ bounds=%@ contentSize=%@ dragging=%d decelerating=%d",
+          (long)state, NSStringFromCGPoint([pan translationInView:scroll]),
+          NSStringFromCGPoint(scroll.contentOffset), NSStringFromCGRect(scroll.bounds),
+          NSStringFromCGSize(scroll.contentSize), scroll.isDragging, scroll.isDecelerating);
+}
+#endif
 
 - (void)handleMoreTap {
     [self setExpanded:!self.isExpanded animated:YES];

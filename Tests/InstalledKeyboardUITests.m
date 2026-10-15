@@ -1008,10 +1008,14 @@
         CGRectContainsRect(list.frame, target.frame) && CGRectContainsRect(host.frame, target.frame) && target.isHittable;
     [self capture:[prefix stringByAppendingString:initiallyVisible
         ? @" candidate 79 initially fully visible" : @" candidate 79 not initially fully visible"] application:host];
+    XCUIElementQuery *lists = [host.scrollViews matchingIdentifier:@"candidate.expandedList"];
+    XCUIElementQuery *mores = [host.buttons matchingIdentifier:@"candidate.more"];
+    XCUIElementQuery *raws = [host.buttons matchingIdentifier:@"candidate.raw"];
     BOOL reached = NO;
     for (NSUInteger swipe = 0; swipe <= 16; swipe++) {
         CGRect viewport = list.frame;
         NSUInteger count = targets.count;
+        BOOL swipeDown = NO;
         if (count > 1) break;
         if (count == 1) {
             CGRect item = target.frame;
@@ -1021,14 +1025,30 @@
                 reached = YES;
                 break;
             }
-            if (swipe == 16 || ![self isOnScreen:list application:host] || !list.isHittable) break;
             if (!CGRectIsEmpty(item) && CGRectGetMinY(item) < CGRectGetMinY(viewport)) {
-                [list swipeDown];
-                continue;
+                swipeDown = YES;
             }
         }
         if (swipe == 16 || ![self isOnScreen:list application:host] || !list.isHittable) break;
-        [list swipeUp];
+        if (swipeDown) [list swipeDown];
+        else [list swipeUp];
+
+        // Check the first unsafe boundary before asking for another stale list frame.
+        NSUInteger listCount = lists.count;
+        NSUInteger moreCount = mores.count;
+        NSUInteger rawCount = raws.count;
+        id moreValue = moreCount == 1 ? mores.firstMatch.value : nil;
+        NSString *rawLabel = rawCount == 1 ? raws.firstMatch.label : nil;
+        id hostValue = multi.value;
+        if (listCount != 1 || moreCount != 1 || ![moreValue isEqual:@"已展開"] ||
+            rawCount != 1 || ![rawLabel isEqualToString:@"c"] || ![hostValue isEqual:@"1"]) {
+            [self capture:[NSString stringWithFormat:@"%@ swipe %lu — first boundary failure",
+                prefix, (unsigned long)(swipe + 1)] application:host];
+            XCTFail(@"%@ swipe %lu changed More/composition/host before candidate 79: viewport count %lu, More %@, raw %@, host %@",
+                    prefix, (unsigned long)(swipe + 1), (unsigned long)listCount,
+                    moreValue ?: @"absent", rawLabel ?: @"absent", hostValue ?: @"absent");
+            return;
+        }
     }
     if (!reached) {
         [self capture:[prefix stringByAppendingString:@" candidate scroll — first boundary failure"] application:host];
