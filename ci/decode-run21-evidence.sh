@@ -42,17 +42,9 @@ printf 'xcresulttool_diagnostics_help_status=%s\nlog_show_help_status=%s\n' \
 cat "$output/tool-versions.txt" "$output/xcresulttool-diagnostics-help.txt" \
     "$output/log-show-help.txt" > "$output/tool-versions-and-help.txt" \
     || { overall=1; exit "$overall"; }
-if [[ "$xcresult_help_status" != 0 && "$xcresult_help_status" != 1 ]] || \
-   [[ "$log_help_status" != 0 && "$log_help_status" != 1 ]] || \
-   ! grep -Fq -- 'xcresulttool export diagnostics --path <path> --output-path <output-path>' "$output/xcresulttool-diagnostics-help.txt" || \
-   ! grep -Fq -- 'usage: log show [options] <archive>' "$output/log-show-help.txt" || \
-   ! grep -Fq -- '--start <date>' "$output/log-show-help.txt" || \
-   ! grep -Fq -- '--end <date>' "$output/log-show-help.txt" || \
-   ! grep -Fq -- '--style <style>' "$output/log-show-help.txt" || \
-   ! grep -Fq -- 'compact)' "$output/log-show-help.txt" || \
-   ! grep -Fq -- '--timezone local | <tz>' "$output/log-show-help.txt" || \
-   ! grep -Fq -- '--[no-]info' "$output/log-show-help.txt" || \
-   ! grep -Fq -- '--[no-]debug' "$output/log-show-help.txt"; then
+if ! python3 ci/check-run21-decode-help.py \
+    "$output/help-exit-status.txt" "$output/xcresulttool-diagnostics-help.txt" \
+    "$output/log-show-help.txt" > "$output/help-validation.txt" 2>&1; then
     echo 'Required retained-decoder help usage/options missing or unexpected exit status' >&2
     overall=1; exit "$overall"
 fi

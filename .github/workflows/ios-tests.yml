@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   simulator:
-    if: "${{ !(github.event_name == 'push' && github.event.before == 'f8f07e436fae8faa154c87feb752615bfcb61aae' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
+    if: "${{ !(github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
     runs-on: macos-15
     timeout-minutes: 40
     strategy:
@@ -50,7 +50,7 @@ jobs:
           retention-days: 14
 
   ipad:
-    if: "${{ !(github.event_name == 'push' && github.event.before == 'f8f07e436fae8faa154c87feb752615bfcb61aae' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
+    if: "${{ !(github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
     runs-on: macos-15
     timeout-minutes: 40
     strategy:
@@ -76,7 +76,7 @@ jobs:
           retention-days: 14
 
   input_actions:
-    if: "${{ !(github.event_name == 'push' && github.event.before == 'f8f07e436fae8faa154c87feb752615bfcb61aae' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
+    if: "${{ !(github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
     needs: [simulator, ipad]
     runs-on: macos-15
     timeout-minutes: 40
@@ -108,7 +108,7 @@ jobs:
           retention-days: 14
 
   acceptance:
-    if: "${{ always() && !(github.event_name == 'push' && github.event.before == 'f8f07e436fae8faa154c87feb752615bfcb61aae' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
+    if: "${{ always() && !(github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only') }}"
     needs: [simulator, ipad, input_actions]
     runs-on: ubuntu-latest
     steps:
@@ -124,7 +124,7 @@ jobs:
           test "$INPUT_ACTIONS_RESULT" = success
 
   decode_retained_run21:
-    if: "${{ github.event_name == 'push' && github.event.before == 'f8f07e436fae8faa154c87feb752615bfcb61aae' && github.event.head_commit.message == 'ci: decode retained run21 evidence only' }}"
+    if: "${{ github.event_name == 'push' && github.event.before == '24077a19ce3e046653d16fb3f078613dfffb9bdd' && github.event.head_commit.message == 'ci: decode retained run21 evidence only' }}"
     runs-on: macos-15
     timeout-minutes: 20
     permissions:
